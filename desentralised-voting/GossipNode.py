@@ -45,48 +45,140 @@ class ThreadWithReturn(Thread):
         self.value = self.function(*args)
 
 
+class ChainTransactionHashes:
+    def __init__(self, self_hash, parent_hash):
+        self.hash = self_hash
+        self.parent_hash = parent_hash
+
+
 class ChainBlock:
-    def __init__(self, node_hash, parent_hash, merkel_tree):
+    def __init__(self, node_hash, nonce, parent_hash, merkel_tree,
+                 branch_blocks_count = None, branch_transactions_count = None):
         self.hash = node_hash
+        self.nonce = nonce
         self.parent_hash = parent_hash
         self.merkel_tree = merkel_tree
+        self.branch_blocks_count = branch_blocks_count
+        self.branch_transactions_count = branch_transactions_count
 
 
-class Chain:
-    def __init__(self, root_hash, fork_allowed_distance=3):
+class Blockchain:
+    def __init__(self, root_content, root_hash, fork_allowed_distance=3, pow_zeros=5):
         self._min_len = 1
         self._max_len = 1
         self._history_len = fork_allowed_distance
         self._leader_hash = root_hash
         self._lock = Lock()
-        init_block = ChainBlock(root_hash, None, None)
-        self._branch_len_to_hashes = defaultdict(list)
-        self._branch_len_to_hashes[1].append(init_block)
+        self._pow_zeros = pow_zeros
 
-    def try_add_block(self, node_data: [str] = None):
-        if node_data is None or len(node_data) == 0:
-            return False
-        cur_merkel_tree = MerkelTree(node_data)
-        new_node_hash = cur_merkel_tree.tree_top.value
-        new_parent_hash = self.get_leader()
-        new_block = ChainBlock(new_node_hash, new_parent_hash, cur_merkel_tree)
-        for branch_len, blocks in self._branch_len_to_hashes.items():
-            for head_block in blocks:
-                if new_block.parent_hash != head_block.hash:
-                    continue
-                with self._lock:
-                    new_len = branch_len + 1
-                    if new_len > self._max_len:
-                        self._max_len = branch_len + 1
-                        self._leader_hash = new_block.hash
-                        if self._max_len - self._min_len > self._history_len:
-                            del self._branch_len_to_hashes[self._min_len]
-                            self._min_len = min(self._branch_len_to_hashes.keys())
-                    self._branch_len_to_hashes[new_len].append(new_block)
-                    return True
+        zero_block = ChainBlock(None, None, None, None, 0, 0)
+        self._hash_to_block = {None: zero_block}
+        self._local_transactions_pool = []
+        self._prev_pool = defaultdict(list)
+        self._last_local_block_num = 0
+        self._pool_branch_len_to_hashes = defaultdict(list)
+        self._pool_branch_len_to_hashes[1].append(ChainTransactionHashes(root_hash, None))
+        self._temp_hash_to_content = {root_hash: root_content}
+
+        self._doubtful_pool = dict()
+
+    def try_add_transaction(self, content, content_hash, parent_hash):
+        current_pool, prev_pool = self._pool_branch_len_to_hashes.items(), \
+                                  self._prev_pool.items()
+        for branch_len, pool_hashes in current_pool:
+            if self._try_add_transaction_to_tail(content, content_hash,
+                                                 parent_hash, branch_len,
+                                                 pool_hashes):
+                return True
+        for branch_len, pool_hashes in prev_pool:
+            if self._try_add_transaction_to_tail(content, content_hash,
+                                                 parent_hash, branch_len,
+                                                 pool_hashes):
+                return True
         return False
 
-    def get_leader(self):
+    def _try_add_transaction_to_tail(self, content, content_hash, parent_hash,
+                                     branch_len, pool_hashes):
+        for accepted_hash in pool_hashes:
+            if parent_hash != accepted_hash:
+                continue
+            hashes = ChainTransactionHashes(content_hash, parent_hash)
+            with self._lock:
+                new_len = branch_len + 1
+                if new_len > self._max_len:
+                    self._max_len = branch_len + 1
+                    self._leader_hash = content_hash
+                    if self._max_len - self._min_len > self._history_len:
+                        del self._pool_branch_len_to_hashes[self._min_len]
+                        self._min_len = min(
+                            self._pool_branch_len_to_hashes.keys())
+                self._pool_branch_len_to_hashes[new_len].append(hashes)
+                self._temp_hash_to_content[content_hash] = content
+                return True
+        return False
+
+    def try_form_block(self):
+        with self._lock:
+            block_pool = self._pool_branch_len_to_hashes
+            self._prev_pool = self._pool_branch_len_to_hashes
+            self._pool_branch_len_to_hashes = defaultdict(list)
+        if len(block_pool) == 0:
+            return
+        branch_max_len = block_pool[max(block_pool.keys())]
+
+        if len(branch_max_len) > 0:
+            block_num = max(self._last_local_block_num,
+                            max(self._doubtful_pool.keys())) + 1
+            self._doubtful_pool[block_num] = block_pool
+            return
+
+        # TODO deal with doubtful_pool
+        block_hashes, prev_transaction_hash = \
+            self._get_step_transactions_chain(block_pool, branch_max_len)
+        block_merkle_tree = MerkelTree(block_hashes)
+        pow_hash, nonce, parent_hash = self.pow_block(
+            block_merkle_tree.tree_top.value, prev_transaction_hash)
+        self.add_block_to_chain(pow_hash, nonce, block_merkle_tree, parent_hash)
+
+    def pow_block(self, merkle_root_hash, first_transaction_parent):
+        while True:
+            nonce = Random.get_random_bytes(8).hex()
+            prev_block_hash = None # TODO get previous block hash
+            pow = (merkle_root_hash + prev_block_hash + nonce).encode('ascii')
+            hexed_hash = SHA256.new(data=pow).hexdigest()
+            if hexed_hash.startswith('0' * self._pow_zeros):
+                return hexed_hash, nonce, prev_block_hash
+
+    def add_block_to_chain(self, block_pow_hash, nonce, block_merkle_tree,
+                           prev_block_hash, block_transactions_count):
+        parent_block = self._hash_to_block[prev_block_hash]
+        block = ChainBlock(block_pow_hash, nonce, block_merkle_tree, prev_block_hash)
+        block.branch_blocks_count = parent_block.branch_blocks_count + 1
+        block.branch_transactions_count = \
+            parent_block.branch_transactions_count + block_transactions_count
+        self._hash_to_block[block_pow_hash] = block
+
+    def _get_step_transactions_chain(self,
+                                     len_to_hashes: defaultdict,
+                                     tail_len: int):
+        last_transaction = len_to_hashes[tail_len][0]
+        block_parent_transaction_hash = last_transaction.parent_hash
+        reversed_list = [last_transaction.hash]
+        tail_len -= 1
+        while True:
+            try:
+                for prev_transaction in len_to_hashes[tail_len]:
+                    if prev_transaction.hash == last_transaction.parent_hash:
+                        last_transaction = prev_transaction
+                        reversed_list.append(last_transaction.hash)
+                        block_parent_transaction_hash = \
+                            last_transaction.parent_hash
+            except KeyError:
+                break
+        answer = reversed_list.reverse()
+        return answer, block_parent_transaction_hash
+
+    def get_leader_transaction(self):
         with self._lock:
             return self._leader_hash
 
