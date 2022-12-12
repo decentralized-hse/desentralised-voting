@@ -13,26 +13,8 @@ from Cryptodome.Hash import SHA256
 from Cryptodome.PublicKey import RSA
 from Cryptodome.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
-from json import JSONEncoder
-from enum import Enum
 from MerkelTree import MerkelTree
-
-
-class VoteType(int, Enum):
-    enter_request = 1
-    enter_vote = 2
-    process_vote = 3
-    are_hashes_valid_request = 4
-    are_hashes_valid_response = 5
-    old_message = 6
-    init_message = 7
-    ask_for_chain = 8
-    response_chain_ask = 9
-
-
-class VoteEncoder(JSONEncoder):
-    def default(self, object):
-        return object.__dict__
+from VoteTypes import VoteType, VoteEncoder, MessageBuilder
 
 
 class ThreadWithReturn(Thread):
@@ -266,7 +248,7 @@ class GossipNode:
     def input_message(self, message):
         infected_nodes = []
         healthy_nodes = self.susceptible_nodes.copy()
-        current_time = self._get_time()
+        # current_time = self._get_time()
 
         # while (self.step_start is not None and
         #        current_time - self.step_start > GossipNode.step_period):
@@ -330,7 +312,7 @@ class GossipNode:
         with self.node_lock:
             self.node.sendto(json.dumps(message).encode('ascii'), (host, port))
 
-    def _get_pub_key(self, message, adress):
+    def _get_pub_key(self, message, address):
         if message['type'] in [VoteType.enter_request, VoteType.ask_for_chain]:
             pub_key = message['content']
             key_hash = self._hash(pub_key).hexdigest()
@@ -339,7 +321,7 @@ class GossipNode:
             return pub_key.encode(encoding='latin1')
         else:
             try:
-                return self.other_public_keys.get(adress)
+                return self.other_public_keys.get(address)
             except:
                 return None
         return None
