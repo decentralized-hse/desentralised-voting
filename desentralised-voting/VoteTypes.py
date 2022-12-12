@@ -1,6 +1,6 @@
 from json import JSONEncoder
 from enum import Enum
-from typing import List
+from typing import List, Dict, Any
 
 from Cryptodome import Random
 from Utils import get_hash, get_time
@@ -35,55 +35,68 @@ class VoteEncoder(JSONEncoder):
         return vote_object.__dict__
 
 
-class MessageBuilder:
-    def __init__(self, vote_type: VoteType, **kwargs):
-
+class Message:
+    def __init__(self, vote_type: VoteType, variables: Dict[str, Any]):
         self.type = vote_type
-        self.variables = kwargs
+        self.variables = variables
         self.signer = self.variables.pop('signer')
+        self.body = None
+
+
+class MessageBuilder:
+    def __init__(self):
+        pass
+
+    def build_message(self, vote_type: VoteType, **kwargs):
+        message = Message(vote_type, kwargs)
 
         try:
-            self.body = self.build_base()
+            message.body = self.build_base(message)
         except KeyError:
             print("Missing necessary fields")
+            return None
 
-        # self.body.update(kwargs)
-        self.update_body_based_on_type()
+        # message.update(kwargs)
+        self.update_body_based_on_type(message)
+        return message.body
 
-    def build_base(self):
-        message = {
-            'type': self.type,
-            'name': self.variables['name'],
+    @staticmethod
+    def build_base(message):
+        base = {
+            'type': message.type,
+            'name': message.variables['name'],
             'start_time': get_time()
         }
 
-        return message
+        return base
 
-    def update_body_based_on_type(self):
+    def update_body_based_on_type(self, message):
         try:
-            first_message = self.type == VoteType.init_message
-            for key in necessary_fields[self.type]:
-                self.body[key] = self.variables[key]
+            first_message = message.type == VoteType.init_message
+            for key in necessary_fields[message.type]:
+                message.body[key] = message.variables[key]
 
-            my_hash = self._get_proof_of_work_hash(first_message)
-            self.update_hash_and_signature(my_hash)
+            my_hash = self._get_proof_of_work_hash(message, first_message)
+            self.update_hash_and_signature(message, my_hash)
 
         except KeyError:
             print("missing necessary fields")
 
-    def _get_proof_of_work_hash(self, first_message=False):
+    @staticmethod
+    def _get_proof_of_work_hash(message, first_message=False):
 
         if not first_message:
-            self.body['prev_hash'] = self.variables['prev_hash']
+            message.body['prev_hash'] = message.variables['prev_hash']
 
         while True:
-            self.body['nonce'] = Random.get_random_bytes(8).hex()
-            c_hash = get_hash(self.body)
+            message.body['nonce'] = Random.get_random_bytes(8).hex()
+            c_hash = get_hash(message.body)
             hexed = c_hash.hexdigest()
 
             if hexed.startswith('0'):
                 return c_hash
 
-    def update_hash_and_signature(self, my_hash):
-        self.body['hash'] = my_hash.hexdigest()
-        self.body['signature'] = self.signer.sign(my_hash).decode(encoding='latin1')
+    @staticmethod
+    def update_hash_and_signature(message, my_hash):
+        message.body['hash'] = my_hash.hexdigest()
+        message.body['signature'] = message.signer.sign(my_hash).decode(encoding='latin1')
