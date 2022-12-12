@@ -2,11 +2,8 @@ from json import JSONEncoder
 from enum import Enum
 from typing import List
 
-import ntplib
-import datetime
 from Cryptodome import Random
-from Cryptodome.Hash import SHA256
-import json
+from Utils import get_hash, get_time
 
 
 class VoteType(int, Enum):
@@ -38,60 +35,39 @@ class VoteEncoder(JSONEncoder):
         return vote_object.__dict__
 
 
-def get_time():
-    while True:
-        try:
-            return datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        except ntplib.NTPException:
-            pass
-
-
 class MessageBuilder:
     def __init__(self, vote_type: VoteType, **kwargs):
 
         self.type = vote_type
         self.variables = kwargs
+        self.signer = self.variables.pop('signer')
+
         try:
-            self.signer = self.variables['signer']
-            self.body = self.build_base(self.variables['name'])
+            self.body = self.build_base()
         except KeyError:
             print("Missing necessary fields")
 
         # self.body.update(kwargs)
         self.update_body_based_on_type()
 
-    def build_base(self, name):
+    def build_base(self):
         message = {
             'type': self.type,
-            'name': name,
+            'name': self.variables['name'],
             'start_time': get_time()
         }
 
         return message
 
     def update_body_based_on_type(self):
-
-        if self.type == VoteType.init_message:
-            self.update_init_message()
-            return
-
-        self.update_necessary_fields(necessary_fields[self.type])
-
-        my_hash = self._get_proof_of_work_hash()
-        self.update_hash_and_signature(my_hash)
-
-    def update_necessary_fields(self, keys: List[str]):
         try:
-            for key in keys:
+            first_message = self.type == VoteType.init_message
+            for key in necessary_fields[self.type]:
                 self.body[key] = self.variables[key]
 
-        except KeyError:
-            print("missing necessary fields")
-
-    def update_init_message(self):
-        try:
-            my_hash = self._get_proof_of_work_hash(first_message=True)
+            my_hash = self._get_proof_of_work_hash(first_message)
             self.update_hash_and_signature(my_hash)
+
         except KeyError:
             print("missing necessary fields")
 
@@ -102,7 +78,7 @@ class MessageBuilder:
 
         while True:
             self.body['nonce'] = Random.get_random_bytes(8).hex()
-            c_hash = self._hash(self.body)
+            c_hash = get_hash(self.body)
             hexed = c_hash.hexdigest()
 
             if hexed.startswith('0'):
@@ -111,10 +87,3 @@ class MessageBuilder:
     def update_hash_and_signature(self, my_hash):
         self.body['hash'] = my_hash.hexdigest()
         self.body['signature'] = self.signer.sign(my_hash).decode(encoding='latin1')
-
-    @staticmethod
-    def _hash(content):
-        return SHA256.new(data=json.dumps(content).encode())
-
-
-
