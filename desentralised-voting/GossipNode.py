@@ -6,33 +6,13 @@ import socket
 from threading import Thread, Lock
 import time
 import ntplib
-import datetime
 from collections import defaultdict
-from Cryptodome import Random
-from Cryptodome.Hash import SHA256
 from Cryptodome.PublicKey import RSA
 from Cryptodome.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
-from json import JSONEncoder
-from enum import Enum
 from MerkelTree import MerkelTree
-
-
-class VoteType(int, Enum):
-    enter_request = 1
-    enter_vote = 2
-    process_vote = 3
-    are_hashes_valid_request = 4
-    are_hashes_valid_response = 5
-    old_message = 6
-    init_message = 7
-    ask_for_chain = 8
-    response_chain_ask = 9
-
-
-class VoteEncoder(JSONEncoder):
-    def default(self, object):
-        return object.__dict__
+from VoteTypes import VoteType, VoteEncoder, MessageBuilder
+from Utils import get_hash, get_time
 
 
 class ThreadWithReturn(Thread):
@@ -226,13 +206,14 @@ class GossipNode:
             self.private_key = RSA.generate(2048)
             self.public_key = self.private_key.publickey().export_key().decode(
                 encoding='latin1')
-            key_hash = self._hash(self.public_key).hexdigest()
+            key_hash = get_hash(self.public_key).hexdigest()
             if key_hash.startswith('0' * self.key_difficulty_level):
                 break
         self.private_key = RSA.generate(2048)
         self.public_key = self.private_key.publickey().export_key().decode(
             encoding='latin1')
         self.signer = PKCS115_SigScheme(self.private_key)
+        self.message_builder = MessageBuilder()
 
         self.susceptible_nodes = connected_nodes
         # clients that you are connected to and who already received message
@@ -247,9 +228,10 @@ class GossipNode:
         self.processed_block = []
 
         if len(self.susceptible_nodes) == 0:
-            init_message = self._create_message(VoteType.init_message, None)
+
+            init_message = MessageBuilder(VoteType.init_message, signer=self.signer, name=self.name).body
             self.blockchain = Chain(init_message['hash'])
-            #self.step_start = math.ceil(self._get_time())
+            #self.step_start = math.ceil(get_time())
             #self.prev_step_hashes = []
             #self.step_counter = 0
         else:
@@ -266,28 +248,14 @@ class GossipNode:
     def _enter_network(self):
         while self.blockchain is not None:
             time.sleep(1)
-        message = self._create_message(
-            VoteType.enter_request,
-            self.public_key,
-            connecting_nodes=self.susceptible_nodes)
+        message = self.message_builder.build_message(VoteType.enter_request,
+                                                     signer=self.signer,
+                                                     name=self.name,
+                                                     public_key=self.public_key,
+                                                     connecting_nodes=self.susceptible_nodes,
+                                                     prev_hash=self.blockchain.get_leader())
+
         self.input_message(message)
-
-    def _get_proof_of_work_hash(self, message, first_message=False):
-        while True:
-            message['nonce'] = Random.get_random_bytes(8).hex()
-            #to edit
-            if not first_message:
-                message['prev_hash'] = self.blockchain.get_leader()
-            c_hash = self._hash(message)
-            hexed = c_hash.hexdigest()
-            print(hexed, message['nonce'])
-            if hexed.startswith('0' * self.difficulty_level):
-                print('found hash:', hexed, 'for nonce:', message['nonce'])
-                return c_hash
-
-    @staticmethod
-    def _hash(content):
-        return SHA256.new(data=json.dumps(content).encode())
 
     def _get_move(self):
         self.node.connect(('127.0.0.1', 12345))
@@ -320,34 +288,12 @@ class GossipNode:
         if not self.blockchain.try_add_block(block_to_add):
             return
 
-    def _create_message(self, message_type, message_content, **kwargs):
-        message = {
-            'type': message_type,
-            'content': message_content,
-            'name': self.name,
-            'start_time': self._get_time()
-        }
-        message.update(kwargs)
-        is_first_message = message_content is None
-        hash = self._get_proof_of_work_hash(message, first_message=is_first_message)
-        message['hash'] = hash.hexdigest()
-        message['signature'] = self.signer.sign(hash).decode(encoding='latin1')
-        return message
-
-    def _get_time(self):
-        while True:
-            try:
-                #time = self.ntp_client.request('pool.ntp.org').tx_time
-                return datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-            except ntplib.NTPException:
-                pass
-
     # def _refresh_step_start(self):
     #     while self.step_start is None:
     #         pass
     #     step_end = self.step_start + GossipNode.step_period
     #     while True:
-    #         if self._get_time() > step_end:
+    #         if get_time() > step_end:
     #             #self.step_hashes_lock.acquire()
     #             self.step_start += GossipNode.step_period
     #             #self._send_prev_hashes()
@@ -358,12 +304,12 @@ class GossipNode:
     def input_message(self, message):
         infected_nodes = []
         healthy_nodes = self.susceptible_nodes.copy()
-        current_time = self._get_time()
+        # current_time = get_time()
 
         # while (self.step_start is not None and
         #        current_time - self.step_start > GossipNode.step_period):
         #     time.sleep(100)
-        #     current_time = self._get_time()
+        #     current_time = get_time()
 
         self.current_block.append(message)
 
@@ -384,9 +330,12 @@ class GossipNode:
 
     def send_blockchain_requests(self):
         while True:
-            req_message = self._create_message(
-                VoteType.ask_for_chain,
-                self.public_key)
+            req_message = self.message_builder.build_message(VoteType.ask_for_chain,
+                                         signer=self.signer,
+                                         name=self.name,
+                                         prev_hash=self.blockchain.get_leader(),
+                                         public_key=self.public_key).body
+
             self.input_message(req_message)
             time.sleep()
 
@@ -397,8 +346,12 @@ class GossipNode:
         return set()
 
     def ask_connected_for_messages(self, suspicious):
-        message = \
-            self._create_message(VoteType.are_hashes_valid_request, suspicious)
+        message = self.message_builder.build_message(VoteType.are_hashes_valid_request,
+                                                     signer=self.signer,
+                                                     name=self.name,
+                                                     prev_hash=self.blockchain.get_leader(),
+                                                     what_is_it=suspicious)
+
         temp_socket = socket.socket(type=socket.SOCK_DGRAM)
         temp_socket.bind((self.hostname, 12345))
         connected_nodes = self.susceptible_nodes.copy()
@@ -418,20 +371,25 @@ class GossipNode:
         to_check = set(messages_list)
         local = set(self.prev_step_hashes)
         answer = list(to_check.intersection(local))
-        message = self._create_message(VoteType.are_hashes_valid_response, answer)
+        message = self.message_builder.build_message(VoteType.are_hashes_valid_response,
+                                                     signer=self.signer,
+                                                     name=self.name,
+                                                     prev_hash=self.blockchain.get_leader(),
+                                                     what_is_it=answer)
+
         with self.node_lock:
             self.node.sendto(json.dumps(message).encode('ascii'), (host, port))
 
-    def _get_pub_key(self, message, adress):
+    def _get_pub_key(self, message, address):
         if message['type'] in [VoteType.enter_request, VoteType.ask_for_chain]:
             pub_key = message['content']
-            key_hash = self._hash(pub_key).hexdigest()
+            key_hash = get_hash(pub_key).hexdigest()
             if key_hash.startswith('0' * self.key_difficulty_level):
                 return None
             return pub_key.encode(encoding='latin1')
         else:
             try:
-                return self.other_public_keys.get(adress)
+                return self.other_public_keys.get(address)
             except:
                 return None
         return None
@@ -443,7 +401,7 @@ class GossipNode:
             return False
         message_signature = copy_to_check.pop('signature').encode(
             encoding='latin1')
-        re_hash = self._hash(copy_to_check)
+        re_hash = get_hash(copy_to_check)
         if message_hash != re_hash.hexdigest():
             return False
 
@@ -525,9 +483,12 @@ class GossipNode:
         self.transmit_message(json.dumps(message).encode('ascii'), infected_nodes, healthy_nodes)
 
     def handle_chain_request(self, address):
-        response = self._create_message(
-            VoteType.response_chain_ask,
-            self.blockchain.tree_to_json())
+        response = self.message_builder.build_message(VoteType.response_chain_ask,
+                                                      signer=self.signer,
+                                                      name=self.name,
+                                                      prev_hash=self.blockchain.get_leader(),
+                                                      blockchain=self.blockchain.tree_to_json())
+
         with self.node_lock:
             self.node.sendto(json.dumps(response).encode('ascii'), address)
 
@@ -548,12 +509,14 @@ class GossipNode:
                              "Message in any format other than 'Yes' will be taken as No."
                              .format(message_dict['name']))
 
-                message = self._create_message(
-                    VoteType.enter_vote,
-                    '',
-                    try_enter_address=address[0] + ':' + str(address[1]),
-                    try_enter_name=message_dict['name'],
-                    enter_vote=vote == "Yes")
+                message = self.message_builder.build_message(VoteType.response_chain_ask,
+                                                             signer=self.signer,
+                                                             name=self.name,
+                                                             prev_hash=self.blockchain.get_leader(),
+                                                             try_enter_address=address[0] + ':' + str(address[1]),
+                                                             try_enter_name=message_dict['name'],
+                                                             enter_vote=vote == "Yes")
+
                 vote_thread = Thread(target=self.input_message,
                                      args=(message,))
                 vote_thread.start()
