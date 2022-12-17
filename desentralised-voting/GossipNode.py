@@ -5,10 +5,14 @@ import random
 import socket
 from threading import Thread, Lock
 import time
+from typing import Dict, Any
+
 import ntplib
 from collections import defaultdict
-from Crypto.PublicKey import RSA
-from Crypto.Signature.pkcs1_15 import PKCS115_SigScheme
+from Cryptodome import Random
+from Cryptodome.Hash import SHA256
+from Cryptodome.PublicKey import RSA
+from Cryptodome.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
 from MerkelTree import MerkelTree
 from VoteTypes import VoteType, VoteEncoder, MessageBuilder
@@ -181,6 +185,77 @@ class Blockchain:
                         break
 
 
+class MessageHandler:
+    def __init__(self, gossip_node: GossipNode):
+        self.gossip_node = gossip_node
+
+    def handle_chain_request(self, address):
+        # TODO send blockchain:
+        # 1) serialize blockchain (.serialize_chain -> bytes, .deserialize_chain) - S
+        # 2) send probably large amount of data -> TCP?
+        response = self.gossip_node.message_builder.build_message(VoteType.response_chain_ask,
+                                                                  signer=self.gossip_node.signer,
+                                                                  name=self.gossip_node.name,
+                                                                  prev_hash=self.gossip_node.blockchain.get_leader(),
+                                                                  blockchain=self.gossip_node.blockchain.tree_to_json())
+
+        with self.gossip_node.node_lock:
+            self.gossip_node.node.sendto(json.dumps(response).encode('ascii'), address)
+
+    def handle_chain_response(self, response: Dict[str, Any]):
+        other_chain_tree = Blockchain.tree_from_json(response['blockchain'])
+        self.gossip_node.blockchain.merge_with_tree(other_chain_tree)
+
+    def handle_enter_request_to_transmit(self, address, message_dict: Dict[str, Any]):
+        # so now we only get enter_request if we don't have the node in susceptible, we do not spread this type of msg
+
+        # adding node to voting_process and candidates_keys
+        # not adding node to susceptible yet so we don't spread enter_vote messages to it
+        self.gossip_node.susceptible_nodes.append(address)
+        self.gossip_node.request_voting_process[address] = set()
+        self.gossip_node.candidates_keys[address] = message_dict['public_key']
+
+        self.handle_vote_spreading(address, message_dict['name'])
+
+    def handle_vote_spreading(self, address, try_enter_name: str):
+        # asking user to vote
+        vote = input("New user {} is requesting enter permission. Do you grant permission(Yes/No)?"
+                     "Message in any format other than 'Yes' will be taken as No."
+                     .format(try_enter_name))
+
+        # add ourself if the vote is Yes
+        if vote == "Yes":
+            self.gossip_node.request_voting_process[address].add(self.gossip_node.name)
+
+        # building message to spread voting
+        message = self.gossip_node.message_builder.build_message(VoteType.enter_vote,
+                                                                 signer=self.gossip_node.signer,
+                                                                 name=self.gossip_node.name,
+                                                                 prev_hash=self.gossip_node.blockchain.get_leader(),
+                                                                 try_enter_address=address[0] + ':' + str(address[1]),
+                                                                 try_enter_name=try_enter_name,
+                                                                 enter_vote=vote == "Yes")
+
+        # transmiting message to all susceptible nodes
+        vote_thread = Thread(target=self.gossip_node.input_message, args=(message,))
+        vote_thread.start()
+
+    def handle_enter_vote_to_transmit(self, address, message_dict: Dict[str, Any]):
+        # we already know about this node and voted for it
+        if address in self.gossip_node.request_voting_process.keys():
+            # adding received vote if it wasn't added already (that's why set)
+            self.gossip_node.request_voting_process[address].add(message_dict['name'])
+
+            # checking if there is enough votes for applying node to be trusted
+            if len(self.gossip_node.request_voting_process[address]) == 2:
+                self.gossip_node.other_public_keys[address] = self.gossip_node.candidates_keys.pop(address)
+
+        else:
+            # adding our vote plus the vote we received and spread our vote
+            self.gossip_node.request_voting_process[address] = {message_dict['name']}
+            self.handle_vote_spreading(address, message_dict['try_enter_name'])
+
+
 class GossipNode:
 
     """
@@ -213,6 +288,7 @@ class GossipNode:
         self.public_key = self.private_key.publickey().export_key().decode(
             encoding='latin1')
         self.signer = PKCS115_SigScheme(self.private_key)
+        self.message_handler = MessageHandler(self)
         self.message_builder = MessageBuilder()
 
         self.susceptible_nodes = connected_nodes
@@ -229,8 +305,11 @@ class GossipNode:
 
         if len(self.susceptible_nodes) == 0:
 
-            init_message = MessageBuilder(VoteType.init_message, signer=self.signer, name=self.name).body
-            self.blockchain = Chain(init_message['hash'])
+            init_message = self.message_builder.build_message(VoteType.init_message,
+                                                              signer=self.signer,
+                                                              name=self.name)
+
+            self.blockchain = Blockchain(init_message['hash'])
         else:
             Thread(target=self._enter_network).start()
 
@@ -298,26 +377,14 @@ class GossipNode:
                               healthy_nodes)
         print(f'You successfully voted for {message["type"]}, {message["content"]}')
 
-    # method that changes election state after receiving a message
-    def update_voting(self, message: dict, address: (str, int)):
-        if not message['vote'] in self.voting_progress:
-            self.voting_progress[message['vote']] = set()
-
-        self.voting_progress[message['vote']].add(address)
-        leading_candidate = max(self.voting_progress, key=self.voting_progress.get)
-        if len(self.voting_progress[leading_candidate]) >= 3:
-            print(f'{leading_candidate} won the elections')
-
     def send_blockchain_requests(self):
-        while True:
-            req_message = self.message_builder.build_message(VoteType.ask_for_chain,
-                                         signer=self.signer,
-                                         name=self.name,
-                                         prev_hash=self.blockchain.get_leader(),
-                                         public_key=self.public_key).body
+        req_message = self.message_builder.build_message(VoteType.ask_for_chain,
+                                                         signer=self.signer,
+                                                         name=self.name,
+                                                         prev_hash=self.blockchain.get_leader(),
+                                                         public_key=self.public_key).body
 
-            self.input_message(req_message)
-            time.sleep()
+        self.input_message(req_message)
 
     def read_message_exists_answer(self, response):
         converted_dict = json.loads(response.decode('ascii'))
@@ -360,9 +427,10 @@ class GossipNode:
         with self.node_lock:
             self.node.sendto(json.dumps(message).encode('ascii'), (host, port))
 
-    def _get_pub_key(self, message, address):
+    def _get_pub_key(self, message: Dict[str, Any], address):
         if message['type'] in [VoteType.enter_request, VoteType.ask_for_chain]:
-            pub_key = message['content']
+            # what is happening here?
+            pub_key = message['public_key']
             key_hash = get_hash(pub_key).hexdigest()
             if key_hash.startswith('0' * self.key_difficulty_level):
                 return None
@@ -370,9 +438,8 @@ class GossipNode:
         else:
             try:
                 return self.other_public_keys.get(address)
-            except:
+            except KeyError:
                 return None
-        return None
 
     def _common_checks(self, message, pub_key):
         copy_to_check = message.copy()
@@ -399,14 +466,12 @@ class GossipNode:
         return False
 
     # method checks if received message should be send to other connected clients
-    def _check_message(self, message: dict, address: (str, int)) -> bool:
-        if address[0] == self.port and address[1] == self.hostname:
-            self.update_voting(message, address)
+    def _check_message(self, message: Dict[str, Any], address: (str, int)) -> bool:
+        # if received message is our
+        if message['name'] == self.name:
             return False
 
-        if 'type' not in message.keys():
-            return False
-
+        # if we do not trust sending node
         pub_key = self._get_pub_key(message, address)
         if pub_key is None:
             return False
@@ -414,12 +479,6 @@ class GossipNode:
         if not self._common_checks(message, pub_key):
             return False
 
-        if message['type'] == VoteType.enter_request:
-            return True
-        elif message['type'] == VoteType.are_hashes_valid_request:
-            self.response_message_exists(message['extra'],
-                                         message['host'], message['port'])
-            return False
         return True
 
     def deal_with_received_message(self, message: dict, address: (str, int)):
@@ -431,16 +490,16 @@ class GossipNode:
             return
 
         if mes_dict['type'] == VoteType.ask_for_chain:
-            self.handle_chain_request(address)
+            self.message_handler.handle_chain_request(address)
+            return
         if mes_dict['type'] == VoteType.response_chain_ask:
-            self.handle_chain_response(mes_dict)
+            self.message_handler.handle_chain_response(mes_dict)
             return
         if mes_dict['type'] == VoteType.enter_request:
-            if not self.handle_enter_request_to_transmit(address, mes_dict):
-                return
+            self.message_handler.handle_enter_request_to_transmit(address, mes_dict)
+            return
         if mes_dict['type'] == VoteType.enter_vote:
-            if not self.handle_enter_vote_to_transmit(address):
-                return
+            self.message_handler.handle_enter_vote_to_transmit(address, message)
 
         # creating  copies so initial arrays stay the same for other messages
         infected_nodes = []
@@ -451,8 +510,6 @@ class GossipNode:
             pass
 
         infected_nodes.append(address)
-        # updating election progress
-        self.update_voting(mes_dict)
         time.sleep(2)
 
         print("\nMessage is: '{0}'.\nReceived at [{1}] fro m [{2}]\n"
@@ -461,62 +518,6 @@ class GossipNode:
         self.current_block.append(message)
         # send message to other connected clients
         self.transmit_message(json.dumps(message).encode('ascii'), infected_nodes, healthy_nodes)
-
-    def handle_chain_request(self, address):
-        # TODO send blockchain:
-        # 1) serialize blockchain (.serialize_chain -> bytes, .deserialize_chain) - S
-        # 2) send probably large amount of data -> TCP?
-        response = self.message_builder.build_message(VoteType.response_chain_ask,
-                                                      signer=self.signer,
-                                                      name=self.name,
-                                                      prev_hash=self.blockchain.get_leader(),
-                                                      blockchain=self.blockchain.tree_to_json())
-
-        with self.node_lock:
-            self.node.sendto(json.dumps(response).encode('ascii'), address)
-
-    def handle_chain_response(self, response):
-        other_chain_tree = Chain.tree_from_json(response['content'])
-        self.blockchain.merge_with_tree(other_chain_tree)
-
-    def handle_enter_request_to_transmit(self, address, message_dict):
-        my_addr = (self.hostname, self.port)
-        newbie_connections = [tuple(i) for i in message_dict['connecting_nodes']]
-        if my_addr in newbie_connections and address not in self.susceptible_nodes:
-            self.susceptible_nodes.append(address)
-            if address not in self.request_voting_process.keys():
-                self.request_voting_process[address] = 1
-                self.candidates_keys[address] = message_dict['content']
-
-                vote = input("New user {} is requesting enter permission. Do you grant permission(Yes/No)?"
-                             "Message in any format other than 'Yes' will be taken as No."
-                             .format(message_dict['name']))
-
-                message = self.message_builder.build_message(VoteType.enter_vote,
-                                                             signer=self.signer,
-                                                             name=self.name,
-                                                             prev_hash=self.blockchain.get_leader(),
-                                                             try_enter_address=address[0] + ':' + str(address[1]),
-                                                             try_enter_name=message_dict['name'],
-                                                             enter_vote=vote == "Yes")
-
-                vote_thread = Thread(target=self.input_message,
-                                     args=(message,))
-                vote_thread.start()
-                return True
-        return False
-
-    def handle_enter_vote_to_transmit(self, address):
-        if address in self.request_voting_process.keys():
-            if self.request_voting_process[address] < 2:
-                self.request_voting_process[address] += 1
-            else:
-                self.other_public_keys[address] = \
-                    self.candidates_keys.pop(address)
-                # send chain story to new node
-                # randomly add it to susceptible_nodes
-            return True
-        return False
 
     # method that receives a message and send it to other connected clients
     def receive_message(self):
@@ -549,10 +550,3 @@ class GossipNode:
         Thread(target=self.monitor_moves).start()
         # TODO think about step number updating
         #Thread(target=self._refresh_step_start).start()
-
-
-if __name__ == '__main__':
-    port = 5000
-    # ports for the nodes connected to this node
-    connected_nodes = []
-    node = GossipNode('127.0.0.1', port, connected_nodes, "first")

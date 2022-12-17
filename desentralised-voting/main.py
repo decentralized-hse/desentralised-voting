@@ -1,16 +1,23 @@
-# This is a sample Python script.
+# import the GossipNode class
+from GossipNode import GossipNode
+import requests
 
-# Press ⌃R to execute it or replace it with your code.
-# Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
+# port for this node
+host = '127.0.0.1'
+port = 5000
+# ports for the nodes connected to this node
+# to_connect = []
 
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press ⌘F8 to toggle the breakpoint.
+def main():
+    response = requests.get('http://jackalpoe.pythonanywhere.com/',
+                            params={'input': f'{host}:{port}'})
+    nodes_to_connect = list(map(lambda x: tuple(x), response.json()['addresses']))
+    node = GossipNode(host, port, nodes_to_connect, "first")
 
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    print_hi('PyCharm')
+    main()
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
