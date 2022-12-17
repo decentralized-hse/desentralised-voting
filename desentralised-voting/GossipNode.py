@@ -7,8 +7,8 @@ from threading import Thread, Lock
 import time
 import ntplib
 from collections import defaultdict
-from Cryptodome.PublicKey import RSA
-from Cryptodome.Signature.pkcs1_15 import PKCS115_SigScheme
+from Crypto.PublicKey import RSA
+from Crypto.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
 from MerkelTree import MerkelTree
 from VoteTypes import VoteType, VoteEncoder, MessageBuilder
@@ -231,13 +231,7 @@ class GossipNode:
 
             init_message = MessageBuilder(VoteType.init_message, signer=self.signer, name=self.name).body
             self.blockchain = Chain(init_message['hash'])
-            #self.step_start = math.ceil(get_time())
-            #self.prev_step_hashes = []
-            #self.step_counter = 0
         else:
-            #self.step_start = None
-            #self.prev_step_hashes = None
-            #self.step_counter = None
             Thread(target=self._enter_network).start()
 
         self._get_move()
@@ -248,11 +242,10 @@ class GossipNode:
     def _enter_network(self):
         while self.blockchain is not None:
             time.sleep(1)
-        message = self.message_builder.build_message(VoteType.enter_request,
+        message = self.message_builder.build_message(VoteType.ask_for_chain,
                                                      signer=self.signer,
                                                      name=self.name,
                                                      public_key=self.public_key,
-                                                     connecting_nodes=self.susceptible_nodes,
                                                      prev_hash=self.blockchain.get_leader())
 
         self.input_message(message)
@@ -287,19 +280,6 @@ class GossipNode:
 
         if not self.blockchain.try_add_block(block_to_add):
             return
-
-    # def _refresh_step_start(self):
-    #     while self.step_start is None:
-    #         pass
-    #     step_end = self.step_start + GossipNode.step_period
-    #     while True:
-    #         if get_time() > step_end:
-    #             #self.step_hashes_lock.acquire()
-    #             self.step_start += GossipNode.step_period
-    #             #self._send_prev_hashes()
-    #             self.step_counter += 1
-    #             #self.step_hashes_lock.release()
-    #             step_end += GossipNode.step_period
 
     def input_message(self, message):
         infected_nodes = []
@@ -483,6 +463,9 @@ class GossipNode:
         self.transmit_message(json.dumps(message).encode('ascii'), infected_nodes, healthy_nodes)
 
     def handle_chain_request(self, address):
+        # TODO send blockchain:
+        # 1) serialize blockchain (.serialize_chain -> bytes, .deserialize_chain) - S
+        # 2) send probably large amount of data -> TCP?
         response = self.message_builder.build_message(VoteType.response_chain_ask,
                                                       signer=self.signer,
                                                       name=self.name,
@@ -509,7 +492,7 @@ class GossipNode:
                              "Message in any format other than 'Yes' will be taken as No."
                              .format(message_dict['name']))
 
-                message = self.message_builder.build_message(VoteType.response_chain_ask,
+                message = self.message_builder.build_message(VoteType.enter_vote,
                                                              signer=self.signer,
                                                              name=self.name,
                                                              prev_hash=self.blockchain.get_leader(),
@@ -561,8 +544,10 @@ class GossipNode:
 
     def start_threads(self):
         Thread(target=self.receive_message).start()
-        Thread(target=self.send_blockchain_requests).start()
+        # New method if we really want this:
+        #Thread(target=self.send_blockchain_requests).start()
         Thread(target=self.monitor_moves).start()
+        # TODO think about step number updating
         #Thread(target=self._refresh_step_start).start()
 
 

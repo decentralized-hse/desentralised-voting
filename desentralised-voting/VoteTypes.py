@@ -9,22 +9,14 @@ from Utils import get_hash, get_time
 class VoteType(int, Enum):
     enter_request = 1
     enter_vote = 2
-    process_vote = 3
-    are_hashes_valid_request = 4
-    are_hashes_valid_response = 5
-    old_message = 6
     init_message = 7
     ask_for_chain = 8
     response_chain_ask = 9
 
 
 necessary_fields = {
-    VoteType.enter_request: ['public_key', 'connecting_nodes'],
+    VoteType.enter_request: ['public_key'],
     VoteType.enter_vote: ['try_enter_name', 'try_enter_address', 'enter_vote'],
-    VoteType.process_vote: [],
-    VoteType.are_hashes_valid_request: [],
-    VoteType.are_hashes_valid_response: [],
-    VoteType.old_message: [],
     VoteType.ask_for_chain: ['public_key'],
     VoteType.response_chain_ask: ['blockchain'],
 }
