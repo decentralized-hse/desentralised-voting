@@ -15,6 +15,7 @@ class VoteType(int, Enum):
 
 
 necessary_fields = {
+    VoteType.init_message: [],
     VoteType.enter_request: ['public_key'],
     VoteType.enter_vote: ['try_enter_name', 'try_enter_address', 'enter_vote'],
     VoteType.ask_for_chain: ['public_key'],
