@@ -1,7 +1,7 @@
 import json
 import ntplib
 import datetime
-from Cryptodome.Hash import SHA256
+from Crypto.Hash import SHA256
 
 
 def get_time():
