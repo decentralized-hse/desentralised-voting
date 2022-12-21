@@ -120,6 +120,7 @@ class GossipNode:
         self.port = port
         self.name = name
         self.node.bind((self.hostname, self.port))
+        self.blockchain: Blockchain | None = None
 
         self.private_key = RSA.generate(2048)
         self.public_key = self.private_key.publickey().export_key().decode(
@@ -145,15 +146,14 @@ class GossipNode:
             init_message = self.message_builder.build_message(VoteType.init_message,
                                                               signer=self.signer,
                                                               name=self.name)
-            self.blockchain = Blockchain(init_message['hash'])
+            self.blockchain = Blockchain(init_message, init_message['hash'])
         else:
             while self.blockchain is None:
                 time.sleep(1)
                 message = self.message_builder.build_message(VoteType.ask_for_chain,
                                                              signer=self.signer,
                                                              name=self.name,
-                                                             public_key=self.public_key,
-                                                             prev_hash=self.blockchain.get_leader())
+                                                             public_key=self.public_key)
                 self.input_message(message)
 
     def _get_move(self):
@@ -174,12 +174,15 @@ class GossipNode:
 
             self.move_number += 1
             self.move_time_left_sec += 4
-            Thread(target=self.blockchain.try_form_block).start()
+            ! #TODO give step time to  try_form_block here
+            Thread(target=lambda: self.blockchain.try_form_block()).start()
 
     def input_message(self, message):
         infected_nodes = []
         healthy_nodes = self.susceptible_nodes.copy()
-        self.blockchain.try_add_transaction(message)
+        self.blockchain.add_transaction(message,
+                                        message['hash'],
+                                        message['start_time'])
 
         self.transmit_message(json.dumps(message).encode('ascii'),
                               infected_nodes,
@@ -190,7 +193,6 @@ class GossipNode:
         req_message = self.message_builder.build_message(VoteType.ask_for_chain,
                                                          signer=self.signer,
                                                          name=self.name,
-                                                         prev_hash=self.blockchain.get_leader(),
                                                          public_key=self.public_key).body
 
         self.input_message(req_message)
@@ -205,7 +207,6 @@ class GossipNode:
         message = self.message_builder.build_message(VoteType.are_hashes_valid_request,
                                                      signer=self.signer,
                                                      name=self.name,
-                                                     prev_hash=self.blockchain.get_leader(),
                                                      what_is_it=suspicious)
 
         temp_socket = socket.socket(type=socket.SOCK_DGRAM)
@@ -304,7 +305,7 @@ class GossipNode:
         print("\nMessage is: '{0}'.\nReceived at [{1}] fro m [{2}]\n"
               .format(json.dumps(mes_dict), time.ctime(time.time()), address))
 
-        self.blockchain.try_add_transaction(message, )
+        self.blockchain.add_transaction(message, )
         # send message to other connected clients
         self.transmit_message(json.dumps(message).encode('ascii'), infected_nodes, healthy_nodes)
 
