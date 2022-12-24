@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-import copy
 import random
 import socket
-from threading import Thread, Lock
+from threading import Thread, Lock, Timer
 import time
 from typing import Dict, Any
 
 import ntplib
-from collections import defaultdict
-from Cryptodome import Random
-from Cryptodome.Hash import SHA256
-from Cryptodome.PublicKey import RSA
-from Cryptodome.Signature.pkcs1_15 import PKCS115_SigScheme
+from Crypto.PublicKey import RSA
+from Crypto.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
 from VoteTypes import VoteType, VoteEncoder, MessageBuilder
 from Utils import get_hash
@@ -33,22 +29,17 @@ class MessageHandler:
     def __init__(self, gossip_node: GossipNode):
         self.gossip_node = gossip_node
 
-    def handle_chain_request(self, address):
-        # TODO send blockchain:
-        # 1) serialize blockchain (.serialize_chain -> bytes, .deserialize_chain) - S
-        # 2) send probably large amount of data -> TCP?
-        response = self.gossip_node.message_builder.build_message(VoteType.response_chain_ask,
-                                                                  signer=self.gossip_node.signer,
-                                                                  name=self.gossip_node.name,
-                                                                  prev_hash=self.gossip_node.blockchain.get_leader(),
-                                                                  blockchain=self.gossip_node.blockchain.tree_to_json())
+    def handle_chain_request(self, tcp_host, tcp_port):
+        temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        temp_socket.bind((self.gossip_node.hostname, 1000))
+        temp_socket.connect((tcp_host, tcp_port))
+        for data in self.gossip_node.blockchain.serialize_chain_blocks():
+            temp_socket.sendall(data)
+        temp_socket.close()
 
-        with self.gossip_node.node_lock:
-            self.gossip_node.node.sendto(json.dumps(response).encode('ascii'), address)
-
-    def handle_chain_response(self, response: Dict[str, Any]):
-        other_chain_tree = Blockchain.tree_from_json(response['blockchain'])
-        self.gossip_node.blockchain.merge_with_tree(other_chain_tree)
+    # def handle_chain_response(self, response: Dict[str, Any]):
+    #     other_chain_tree = Blockchain.tree_from_json(response['blockchain'])
+    #     self.gossip_node.blockchain.merge_with_tree(other_chain_tree)
 
     def handle_enter_request_to_transmit(self, address, message_dict: Dict[str, Any]):
         # so now we only get enter_request if we don't have the node in susceptible, we do not spread this type of msg
@@ -99,6 +90,7 @@ class MessageHandler:
             self.gossip_node.request_voting_process[address] = {message_dict['name']}
             self.handle_vote_spreading(address, message_dict['try_enter_name'])
 
+
 class GossipNode:
 
     """
@@ -113,7 +105,8 @@ class GossipNode:
     candidates_keys = {}
     step_period = 4
 
-    def __init__(self, host, port, connected_nodes, name):
+    def __init__(self, host, port, connected_nodes, name,
+                 enter_end_time=None, voting_end_time=None, candidates=None):
         self.node = socket.socket(type=socket.SOCK_DGRAM)
         self.node_lock = Lock()
         self.hostname = host
@@ -135,36 +128,74 @@ class GossipNode:
         self.other_public_keys = dict()
         self.prev_message_time_to_hashes = dict()
 
-        self._get_move()
-        Thread(target=self._init_chain).start()
+        # Why did we use threads here?
+        self._init_chain(enter_end_time, voting_end_time, candidates)
+        self.zero_step_start = self.blockchain.init_block.content['zero_step']
+        self.move_number = -1
         print(f'{self.port} created successfully')
         self.start_threads()
 
-
-    def _init_chain(self):
+    def _init_chain(self, enter_end_time, voting_end_time, candidates):
         if len(self.susceptible_nodes) == 0:
             init_message = self.message_builder.build_message(VoteType.init_message,
                                                               signer=self.signer,
-                                                              name=self.name)
+                                                              name=self.name,
+                                                              zero_step=time.time(),
+                                                              enter_end_time=enter_end_time,
+                                                              voting_end_time=voting_end_time,
+                                                              candidates=candidates)
             self.blockchain = Blockchain(init_message, init_message['hash'])
         else:
-            while self.blockchain is None:
-                time.sleep(1)
-                message = self.message_builder.build_message(VoteType.ask_for_chain,
-                                                             signer=self.signer,
-                                                             name=self.name,
-                                                             public_key=self.public_key)
-                self.input_message(message)
+            tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            tcp_sock.bind((self.hostname, 1000))
+            tcp_sock.listen(1)
 
-    def _get_move(self):
-        self.node.connect(('127.0.0.1', 12345))
+            self.blockchain = Blockchain()
 
-        self.node.sendall(b'hello')
-        message, address = self.node.recvfrom(2048)
-        data = json.loads(message.decode('ascii'))
-        self.move_number = data['move_number']
-        self.move_time_left_sec = data['move_time_left_sec']
-        print(f'move number = {self.move_number}; move time left = {self.move_time_left_sec}')
+            message = self.message_builder.build_message(
+                VoteType.ask_for_chain,
+                signer=self.signer,
+                name=self.name,
+                public_key=self.public_key,
+                tcp_host=self.hostname,
+                tcp_port=1000
+            )
+            nodes = self.susceptible_nodes.copy()
+            for node in nodes:
+                bin_message = json.dumps(message).encode('ascii')
+                self.node.sendto(bin_message, (node[0], node[1]))
+            for i in range(len(nodes)):
+                conn, address = tcp_sock.accept()
+                try:
+                    while True:
+                        data = conn.recv(2048)
+                        block = self.blockchain.deserialize_block(data)
+                        self.blockchain.try_add_block(block)
+                except:
+                    pass
+                finally:
+                    conn.close()
+
+    def _get_move(self) -> int:
+        return int((time.time() - self.zero_step_start) / self.step_period)
+        # self.node.connect(('127.0.0.1', 12345))
+        # self.node.sendall(b'hello')
+        # message, address = self.node.recvfrom(2048)
+        # data = json.loads(message.decode('ascii'))
+        # self.move_number = data['move_number']
+        # self.move_time_left_sec = data['move_time_left_sec']
+        # print(f'move number = {self.move_number}; move time left = {self.move_time_left_sec}')
+
+    def move_updater_loop(self):
+        self.move_number += 1
+        Timer(self.step_period, self.move_updater_loop).start()
+
+    def timer_launcher(self):
+        time_diff = time.time() - self.zero_step_start
+        self.move_number = time_diff / self.step_period
+        start_time = time.time() + (self.move_number + 1) * self.step_period
+        time.sleep(start_time - time.time())
+        self.move_updater_loop()
 
     def monitor_moves(self):
         while True:
@@ -174,7 +205,7 @@ class GossipNode:
 
             self.move_number += 1
             self.move_time_left_sec += 4
-            ! #TODO give step time to  try_form_block here
+            #! TODO give step time to  try_form_block here
             Thread(target=lambda: self.blockchain.try_form_block()).start()
 
     def input_message(self, message):
@@ -189,13 +220,13 @@ class GossipNode:
                               healthy_nodes)
         print(f'You successfully voted for {message["type"]}, {message["content"]}')
 
-    def send_blockchain_requests(self):
-        req_message = self.message_builder.build_message(VoteType.ask_for_chain,
-                                                         signer=self.signer,
-                                                         name=self.name,
-                                                         public_key=self.public_key).body
-
-        self.input_message(req_message)
+    # def send_blockchain_requests(self):
+    #     req_message = self.message_builder.build_message(VoteType.ask_for_chain,
+    #                                                      signer=self.signer,
+    #                                                      name=self.name,
+    #                                                      public_key=self.public_key).body
+    #
+    #     self.input_message(req_message)
 
     def read_message_exists_answer(self, response):
         converted_dict = json.loads(response.decode('ascii'))
@@ -276,15 +307,19 @@ class GossipNode:
         if not self._check_message(mes_dict, address):
             return
         #to edit
-        if not self.blockchain.try_add_block(message['hash'], message['prev_hash']):
-            return
+        # if not self.blockchain.try_add_block(mes_dict['hash'], mes_dict['prev_hash']):
+        #     return
 
         if mes_dict['type'] == VoteType.ask_for_chain:
-            self.message_handler.handle_chain_request(address)
+            self.message_handler.handle_chain_request(mes_dict['tcp_host'], mes_dict['tcp_port'])
             return
-        if mes_dict['type'] == VoteType.response_chain_ask:
-            self.message_handler.handle_chain_response(mes_dict)
-            return
+
+        # TODO think if we reduce content
+        self.blockchain.add_transaction(mes_dict, mes_dict['hash'], mes_dict['start_time'])
+        # return
+        # if mes_dict['type'] == VoteType.response_chain_ask:
+        #     self.message_handler.handle_chain_response(mes_dict)
+        #     return
         if mes_dict['type'] == VoteType.enter_request:
             self.message_handler.handle_enter_request_to_transmit(address, mes_dict)
             return
@@ -337,6 +372,6 @@ class GossipNode:
         Thread(target=self.receive_message).start()
         # New method if we really want this:
         #Thread(target=self.send_blockchain_requests).start()
-        Thread(target=self.monitor_moves).start()
+        Thread(target=self.timer_launcher).start()
         # TODO think about step number updating
         #Thread(target=self._refresh_step_start).start()

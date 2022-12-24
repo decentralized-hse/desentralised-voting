@@ -54,6 +54,7 @@ class Blockchain:
         self._hash_to_block: Dict[str, ChainBlock] = dict()
         self._step_to_blocks_info = defaultdict(list)
         self._block_hashes_list: List[str] = []
+        self.init_block: ChainBlock
 
         if root_content is not None:
             init_block = self._get_init_block(root_content, root_hash)
@@ -61,6 +62,7 @@ class Blockchain:
             self._step_to_blocks_info[0].append(
                 ShortBlockInfo(init_block.hash, init_block.blocks_count))
             self._block_hashes_list.append(init_block.hash)
+            self.init_block = init_block
 
         self._pool_time_key: Dict[float, str] = dict()
         self._hash_to_content: Dict[str, Any] = dict()
@@ -105,6 +107,8 @@ class Blockchain:
                                 not self._validate_parent(block)):
             return False
         self._add_block_to_chain(block)
+        if block.parent_hash is None:
+            self.init_block = block
         return True
 
     def _add_block_to_chain(self, block: ChainBlock):
@@ -114,19 +118,20 @@ class Blockchain:
                 ShortBlockInfo(block.hash, block.blocks_count))
             self._block_hashes_list.append(block.hash)
 
-    @staticmethod
-    def _validate_hashes(block: ChainBlock) -> bool:
+    def _validate_hashes(self, block: ChainBlock) -> bool:
         if block.parent_hash is None:
-            to_hash = (block.merkel_tree.tree_top.value + block.nonce)
+            to_hash = block.merkel_tree['tree_top']['value'] + block.nonce
         else:
-            to_hash = (block.merkel_tree.tree_top.value +
+            to_hash = (block.merkel_tree['tree_top']['value'] +
                        block.parent_hash +
                        block.nonce)
         hashed = SHA256.new(data=to_hash.encode('ascii')).hexdigest()
-        return hashed == block.hash
+        return hashed == block.hash and hashed not in self._hash_to_block
 
     def _validate_parent(self, block: ChainBlock) -> bool:
-        if not block.parent_hash in self._block_hashes_list:
+        if block.parent_hash is None:
+            return True
+        if block.parent_hash not in self._block_hashes_list:
             return False
         parent_block = self._hash_to_block[block.parent_hash]
         return (parent_block.step < block.step and

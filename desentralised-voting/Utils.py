@@ -4,12 +4,12 @@ import datetime
 from Crypto.Hash import SHA256
 
 
-def get_time():
-    while True:
-        try:
-            return datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        except ntplib.NTPException:
-            pass
+# def get_time():
+#     while True:
+#         try:
+#             return datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+#         except ntplib.NTPException:
+#             pass
 
 
 def get_hash(content):
