@@ -3,6 +3,7 @@ from __future__ import annotations
 from threading import Lock
 from collections import defaultdict
 import json
+import operator
 from MerkelTree import MerkelTree
 from Crypto import Random
 from Crypto.Hash import SHA256
@@ -152,6 +153,18 @@ class Blockchain:
             candidates = self._step_to_blocks_info[step]
             if len(candidates) > 0:
                 return max(candidates, key=lambda c: c.blocks_count)
+
+    def get_actual_chain_backwards(self):
+        last_step = max(self._step_to_blocks_info)
+        block_hash = sorted(self._step_to_blocks_info[last_step],
+                            key=operator.attrgetter('blocks_count'),
+                            reverse=True)[0].hash
+        while True:
+            if block_hash is None:
+                return
+            block = self._hash_to_block[block_hash]
+            yield block.content
+            block_hash = block.parent_hash
 
     def serialize_chain_blocks(self):
         for block_hash in self._block_hashes_list:
