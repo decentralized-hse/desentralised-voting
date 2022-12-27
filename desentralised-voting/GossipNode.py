@@ -10,7 +10,7 @@ import ntplib
 from Crypto.PublicKey import RSA
 from Crypto.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
-from VoteTypes import VoteType, VoteEncoder, MessageBuilder
+from VoteTypes import VoteType, MessageBuilder
 from Utils import get_hash
 from Blockchain import Blockchain
 
@@ -205,8 +205,8 @@ class GossipNode:
 
             self.move_number += 1
             self.move_time_left_sec += 4
-            #! TODO give step time to  try_form_block here
-            Thread(target=lambda: self.blockchain.try_form_block()).start()
+            Thread(target=lambda: self.blockchain.try_form_block(
+                self.move_number)).start()
 
     def input_message(self, message):
         infected_nodes = []
