@@ -4,15 +4,15 @@ import random
 import socket
 from threading import Thread, Lock, Timer
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import ntplib
-from Crypto.PublicKey import RSA
-from Crypto.Signature.pkcs1_15 import PKCS115_SigScheme
+from Cryptodome.PublicKey import RSA
+from Cryptodome.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
 from VoteTypes import VoteType, MessageBuilder
 from Utils import get_hash
-from Blockchain import Blockchain
+from Blockchain import Blockchain, PeriodType
 
 
 class ThreadWithReturn(Thread):
@@ -113,7 +113,7 @@ class GossipNode:
         self.port = port
         self.name = name
         self.node.bind((self.hostname, self.port))
-        self.blockchain: Blockchain | None = None
+        self.blockchain: Optional[Blockchain] = None
 
         self.private_key = RSA.generate(2048)
         self.public_key = self.private_key.publickey().export_key().decode(
@@ -292,6 +292,12 @@ class GossipNode:
         if message['name'] == self.name:
             return False
 
+        if self.blockchain.init_block.current_period == PeriodType.Vote and message['type'] == VoteType.enter_request:
+            return False
+
+        if self.blockchain.init_block.current_period == PeriodType.Enter and message['type'] == VoteType.enter_vote:
+            return False
+
         # if we do not trust sending node
         pub_key = self._get_pub_key(message, address)
         if pub_key is None:
@@ -337,7 +343,7 @@ class GossipNode:
         infected_nodes.append(address)
         time.sleep(2)
 
-        print("\nMessage is: '{0}'.\nReceived at [{1}] fro m [{2}]\n"
+        print("\nMessage is: '{0}'.\nReceived at [{1}] from [{2}]\n"
               .format(json.dumps(mes_dict), time.ctime(time.time()), address))
 
         self.blockchain.add_transaction(message, )
@@ -368,10 +374,20 @@ class GossipNode:
 
         # self.susceptible_nodes = self.infected_nodes
 
+    def _inform_user_about_period_changing(self):
+        period = self.blockchain.init_block.current_period
+        while True:
+            if period != self.blockchain.init_block.current_period:
+                period = self.blockchain.init_block.current_period
+                print(f"Voting period has changed. Current period is '{period.name}'"
+                      f"This means you can now only send and receive messages of types: {period.value}")
+
+
     def start_threads(self):
         Thread(target=self.receive_message).start()
         # New method if we really want this:
         #Thread(target=self.send_blockchain_requests).start()
         Thread(target=self.timer_launcher).start()
+        Thread(target=self._inform_user_about_period_changing).start()
         # TODO think about step number updating
         #Thread(target=self._refresh_step_start).start()
