@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import datetime
+import time
+from enum import Enum
 from threading import Lock
 from collections import defaultdict
 import json
 import operator
 from MerkelTree import MerkelTree
-from Crypto import Random
-from Crypto.Hash import SHA256
-from typing import List, Dict, Any
+from Cryptodome import Random
+from Cryptodome.Hash import SHA256
+from typing import List, Dict, Any, Optional
+import schedule
+from VoteTypes import VoteType
 
 
 class BlockEncoder(json.JSONEncoder):
@@ -25,7 +30,7 @@ class ChainBlock:
     def __init__(self,
                  node_hash: str,
                  nonce: str,
-                 parent_hash: str,
+                 parent_hash: Optional[str],
                  merkel_tree: MerkelTree,
                  content: Dict[str, Any],
                  step: int,
@@ -37,6 +42,38 @@ class ChainBlock:
         self.content = content
         self.step = step
         self.blocks_count = branch_blocks_count
+
+
+class PeriodType(List[VoteType], Enum):
+    Enter = [VoteType.enter_request, VoteType.ask_for_chain]
+    Vote = [VoteType.enter_vote]
+
+
+class InitBlock(ChainBlock):
+    def __init__(self,
+                 node_hash: str,
+                 nonce: str,
+                 merkel_tree: MerkelTree,
+                 content: Any,
+                 step: int,
+                 branch_blocks_count: int):
+        super().__init__(node_hash, nonce, None, merkel_tree, content, step, branch_blocks_count)
+        self.step_length = datetime.timedelta(seconds=4)
+        self.start_date = datetime.datetime.now()
+        self.start_time = self.start_date.timestamp()
+        self.enter_period = schedule.every().day.at("00:00").do(self.set_period, PeriodType.Enter)
+        self.vote_period = schedule.every().day.at("12:00").do(self.set_period, PeriodType.Vote)
+        self.current_period: PeriodType = PeriodType.Enter
+        self.voting_topic = "DECENT ELECTIONS"
+        self.enter_period_options = {"Yes", "No"}
+        self.voting_period_options = {"Vladimir Putin", "Dmitriy Medvedev(wrong choice)", "I wanna go to jail"}
+        # start running period changing process thread or something needed
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
+
+    def set_period(self, period_type: PeriodType):
+        self.current_period = period_type
 
 
 class ShortBlockInfo:
@@ -55,7 +92,7 @@ class Blockchain:
         self._hash_to_block: Dict[str, ChainBlock] = dict()
         self._step_to_blocks_info = defaultdict(list)
         self._block_hashes_list: List[str] = []
-        self.init_block: ChainBlock
+        self.init_block: InitBlock
 
         if root_content is not None:
             init_block = self._get_init_block(root_content, root_hash)
@@ -68,7 +105,7 @@ class Blockchain:
         self._pool_time_key: Dict[float, str] = dict()
         self._hash_to_content: Dict[str, Any] = dict()
 
-    def _get_init_block(self, root_content, root_hash) -> ChainBlock:
+    def _get_init_block(self, root_content, root_hash) -> InitBlock:
         merkle_tree = MerkelTree([root_hash])
         while True:
             nonce = Random.get_random_bytes(8).hex()
@@ -76,7 +113,7 @@ class Blockchain:
             hexed = SHA256.new(data=pow).hexdigest()
             if hexed.startswith('0' * self._pow_zeros):
                 break
-        return ChainBlock(hexed, nonce, None, merkle_tree, root_content, 0, 1)
+        return InitBlock(hexed, nonce, merkle_tree, root_content, 0, 1)
 
     def add_transaction(self, content: Any, content_hash: str, time: float):
         with self._lock:
