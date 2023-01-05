@@ -27,7 +27,7 @@ class ChainBlock:
                  nonce: str,
                  parent_hash: str,
                  merkel_tree: MerkelTree,
-                 content: Any,
+                 content: Dict[str, Any],
                  step: int,
                  branch_blocks_count: int):
         self.hash = node_hash
@@ -160,7 +160,7 @@ class Blockchain:
                             key=operator.attrgetter('blocks_count'),
                             reverse=True)[0].hash
         while True:
-            if block_hash is None:
+            if block_hash == self.init_block.hash:
                 return
             block = self._hash_to_block[block_hash]
             yield block.content

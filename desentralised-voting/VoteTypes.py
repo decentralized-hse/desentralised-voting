@@ -8,11 +8,10 @@ from Utils import get_hash #, get_time
 
 
 class VoteType(int, Enum):
-    enter_request = 1
-    enter_vote = 2
-    init_message = 7
-    ask_for_chain = 8
-    # response_chain_ask = 9
+    init_message = 1
+    enter_request = 2
+    enter_vote = 3
+    ask_for_chain = 4
 
 
 necessary_fields = {
@@ -23,7 +22,6 @@ necessary_fields = {
     VoteType.enter_request: ['public_key'],
     VoteType.enter_vote: ['try_enter_name', 'try_enter_address', 'enter_vote'],
     VoteType.ask_for_chain: ['public_key', 'tcp_host', 'tcp_port'],
-    # VoteType.response_chain_ask: ['blockchain'],
 }
 
 
