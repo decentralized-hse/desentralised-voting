@@ -45,6 +45,7 @@ class ChainBlock:
 
 
 class PeriodType(List[VoteType], Enum):
+    Default = []
     Enter = [VoteType.enter_request, VoteType.ask_for_chain]
     Vote = [VoteType.enter_vote]
 
@@ -63,7 +64,7 @@ class InitBlock(ChainBlock):
         self.start_time = self.start_date.timestamp()
         self.enter_period = ["00:00", "12:00"]
         self.vote_period = ["12:00", "00:00"]
-        self.current_period: PeriodType = PeriodType.Enter
+        self.current_period: PeriodType = PeriodType.Default
         self.voting_topic = "DECENT ELECTIONS"
         self.enter_period_options = {"Yes", "No"}
         self.voting_period_options = {"Vladimir Putin", "Dmitriy Medvedev(wrong choice)", "I wanna go to jail"}

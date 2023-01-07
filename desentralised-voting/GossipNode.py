@@ -199,24 +199,25 @@ class GossipNode:
             Thread(target=self.transmit_all_formed_messages).start()
             time.sleep(self.step_period)
 
-    def period_updater_loop(self):
-        enter_time = self.blockchain.init_block.enter_period[0]
-        vote_time = self.blockchain.init_block.vote_period[0]
-        schedule.every().day.at(enter_time).do(self.set_period, PeriodType.Enter)
-        schedule.every().day.at(vote_time).do(self.set_period, PeriodType.Vote)
-        enter_start_hour = datetime.strptime(enter_time, '%H:%M').hour
-        vote_start_hour = datetime.strptime(vote_time, '%H:%M').hour
-        while True:
-            schedule.run_pending()
-            cur = datetime.now()
-            if cur.hour >= vote_start_hour:
-                dt = cur.replace(hour=enter_start_hour, minute=0, second=1, microsecond=0)
-            else:
-                dt = cur.replace(hour=vote_start_hour, minute=0, second=1, microsecond=0)
-            time.sleep(dt.timestamp() - cur.timestamp())
-
     def set_period(self, period_type: PeriodType):
         self.blockchain.init_block.current_period = period_type
+
+    def period_updater_loop(self):
+        start_time = [self.blockchain.init_block.enter_period[0],
+                      self.blockchain.init_block.vote_period[0]]
+        end_time = [self.blockchain.init_block.enter_period[1],
+                    self.blockchain.init_block.vote_period[1]]
+        period_type = [PeriodType.Enter, PeriodType.Vote]
+
+        for i in range(2):
+            time_start = datetime.strptime(start_time[i], '%H:%M')
+            while datetime.now().hour != time_start.hour or datetime.now().minute != time_start.minute:
+                time.sleep(1)
+            self.set_period(period_type[i])
+            time_end = datetime.strptime(end_time[i], '%H:%M')
+            while datetime.now().hour != time_end.hour or datetime.now().minute != time_end.minute:
+                time.sleep(1)
+            self.set_period(PeriodType.Default)
 
     def timer_launcher(self):
         Thread(target=self.move_updater_loop).start()
