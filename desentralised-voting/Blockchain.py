@@ -190,11 +190,23 @@ class Blockchain:
             if len(candidates) > 0:
                 return max(candidates, key=lambda c: c.blocks_count)
 
-    def get_actual_chain_backwards(self):
+    def _get_tail_block_hash_naive(self) -> str:
         last_step = max(self._step_to_blocks_info)
-        block_hash = sorted(self._step_to_blocks_info[last_step],
-                            key=operator.attrgetter('blocks_count'),
-                            reverse=True)[0].hash
+        return sorted(self._step_to_blocks_info[last_step],
+                      key=operator.attrgetter('blocks_count'),
+                      reverse=True)[0].hash
+
+    def try_find_transaction_hash_from(self, step: int, target_hash: str):
+        block_hash = self._get_tail_block_hash_naive()
+        block = self._hash_to_block[block_hash]
+        while block.step >= step:
+            for transaction_hash in block.content:
+                if transaction_hash == target_hash:
+                    return True
+        return False
+
+    def get_actual_chain_backwards(self):
+        block_hash = self._get_tail_block_hash_naive()
         while True:
             if block_hash == self.init_block.hash:
                 return

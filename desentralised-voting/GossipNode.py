@@ -290,6 +290,12 @@ class GossipNode:
         Thread(target=self.move_updater_loop).start()
         Thread(target=self.period_updater_loop).start()
 
+    def _track_message_in_chain(self, message, block_step):
+        time.sleep(self.step_period_seconds * 3)
+        if not self.blockchain.try_find_transaction_hash_from(block_step,
+                                                              message['hash']):
+            self.input_messages.append([message, [], self.susceptible_nodes.copy()])
+
     def transmit_all_formed_messages(self):
         for message_info in self.input_messages:
             message, infected_nodes, healthy_nodes = message_info
@@ -300,6 +306,9 @@ class GossipNode:
             self.transmit_message(json.dumps(message).encode('ascii'),
                                   infected_nodes,
                                   healthy_nodes)
+            if message.type in [VoteType.enter_request, VoteType.enter_vote]:
+                Thread(target=self._track_message_in_chain,
+                       args=[message, self.move_number])
 
     def input_message(self, message):
         infected_nodes = []
@@ -425,7 +434,10 @@ class GossipNode:
                    args=(mes_dict, address)).start()
 
     # method that sends messages to other connected clients
-    def transmit_message(self, message: bytes, infected_nodes: list, healthy_nodes: List[(str, int)]):
+    def transmit_message(self,
+                         message: bytes,
+                         infected_nodes: list,
+                         healthy_nodes: List[(str, int)]):
         while healthy_nodes:
             selected_node = random.choice(healthy_nodes)
 
@@ -434,10 +446,8 @@ class GossipNode:
 
             healthy_nodes.remove(selected_node)
             infected_nodes.append(selected_node)
-
-            time.sleep(2)
-
-        # self.susceptible_nodes = self.infected_nodes
+            #TODO W H Y timesleep???
+            #time.sleep(2)
 
     def _inform_user_about_period_changing(self):
         period = self.blockchain.init_block.current_period
