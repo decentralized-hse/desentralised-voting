@@ -61,19 +61,12 @@ class InitBlock(ChainBlock):
         self.step_length = datetime.timedelta(seconds=4)
         self.start_date = datetime.datetime.now()
         self.start_time = self.start_date.timestamp()
-        self.enter_period = schedule.every().day.at("00:00").do(self.set_period, PeriodType.Enter)
-        self.vote_period = schedule.every().day.at("12:00").do(self.set_period, PeriodType.Vote)
+        self.enter_period = ["00:00", "12:00"]
+        self.vote_period = ["12:00", "00:00"]
         self.current_period: PeriodType = PeriodType.Enter
         self.voting_topic = "DECENT ELECTIONS"
         self.enter_period_options = {"Yes", "No"}
         self.voting_period_options = {"Vladimir Putin", "Dmitriy Medvedev(wrong choice)", "I wanna go to jail"}
-        # start running period changing process thread or something needed
-        while True:
-            schedule.run_pending()
-            time.sleep(1)
-
-    def set_period(self, period_type: PeriodType):
-        self.current_period = period_type
 
 
 class ShortBlockInfo:
