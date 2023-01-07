@@ -11,7 +11,8 @@ class VoteType(int, Enum):
     init_message = 1
     enter_request = 2
     enter_vote = 3
-    ask_for_chain = 4
+    block = 4
+    ask_for_chain = 5
 
 
 necessary_fields = {
@@ -21,6 +22,7 @@ necessary_fields = {
                             'candidates'],
     VoteType.enter_request: ['public_key'],
     VoteType.enter_vote: ['try_enter_name', 'try_enter_address', 'enter_vote'],
+    VoteType.block: ['block'],
     VoteType.ask_for_chain: ['public_key', 'tcp_host', 'tcp_port'],
 }
 

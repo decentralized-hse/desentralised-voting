@@ -3,15 +3,14 @@ from __future__ import annotations
 import datetime
 import time
 from enum import Enum
-from threading import Lock
+from threading import Lock, Event
 from collections import defaultdict
 import json
 import operator
 from MerkelTree import MerkelTree
-from Cryptodome import Random
-from Cryptodome.Hash import SHA256
+from Crypto import Random
+from Crypto.Hash import SHA256
 from typing import List, Dict, Any, Optional
-import schedule
 from VoteTypes import VoteType
 
 
@@ -45,6 +44,7 @@ class ChainBlock:
 
 
 class PeriodType(List[VoteType], Enum):
+    Default = []
     Enter = [VoteType.enter_request, VoteType.ask_for_chain]
     Vote = [VoteType.enter_vote]
 
@@ -58,22 +58,15 @@ class InitBlock(ChainBlock):
                  step: int,
                  branch_blocks_count: int):
         super().__init__(node_hash, nonce, None, merkel_tree, content, step, branch_blocks_count)
-        self.step_length = datetime.timedelta(seconds=4)
+        self.step_length: type(datetime.timedelta) = datetime.timedelta(seconds=4)
         self.start_date = datetime.datetime.now()
         self.start_time = self.start_date.timestamp()
-        self.enter_period = schedule.every().day.at("00:00").do(self.set_period, PeriodType.Enter)
-        self.vote_period = schedule.every().day.at("12:00").do(self.set_period, PeriodType.Vote)
-        self.current_period: PeriodType = PeriodType.Enter
+        self.enter_period = ["00:00", "12:00"]
+        self.vote_period = ["12:00", "00:00"]
+        self.current_period: PeriodType = PeriodType.Default
         self.voting_topic = "DECENT ELECTIONS"
         self.enter_period_options = {"Yes", "No"}
         self.voting_period_options = {"Vladimir Putin", "Dmitriy Medvedev(wrong choice)", "I wanna go to jail"}
-        # start running period changing process thread or something needed
-        while True:
-            schedule.run_pending()
-            time.sleep(1)
-
-    def set_period(self, period_type: PeriodType):
-        self.current_period = period_type
 
 
 class ShortBlockInfo:
@@ -120,16 +113,18 @@ class Blockchain:
             self._hash_to_content[content_hash] = content
             self._pool_time_key[time] = content_hash
 
-    def try_form_block(self, step: int):
+    def try_form_block(self, step: int, stopper: Event) -> Optional[ChainBlock]:
         with self._lock:
             block_pool, self._pool_time_key = self._pool_time_key, dict()
             contents, self._hash_to_content = self._hash_to_content, dict()
         if len(block_pool) == 0:
-            return
+            return None
         block_hashes_ordered = [block_pool[t] for t in sorted(block_pool)]
         block_merkle_tree = MerkelTree(block_hashes_ordered)
         pow_hash, nonce, prev_block_info = \
-            self._pow_block(block_merkle_tree.tree_top.value, step)
+            self._pow_block(block_merkle_tree.tree_top.value, step, stopper)
+        if stopper.is_set():
+            return None
 
         block = ChainBlock(pow_hash,
                            nonce,
@@ -139,6 +134,7 @@ class Blockchain:
                            step,
                            prev_block_info.blocks_count + 1)
         self._add_block_to_chain(block)
+        return block
 
     def try_add_block(self, block: ChainBlock, skip_checks=False) -> bool:
         if not skip_checks and (not self._validate_hashes(block) or
@@ -175,8 +171,11 @@ class Blockchain:
         return (parent_block.step < block.step and
                 parent_block.blocks_count + 1 == block.blocks_count)
 
-    def _pow_block(self, merkle_root_hash: str, step: int) -> (str, str, ShortBlockInfo):
+    def _pow_block(self, merkle_root_hash: str, step: int, stopper: Event) \
+            -> (str, str, ShortBlockInfo):
         while True:
+            if stopper.is_set():
+                return None, None, None
             nonce = Random.get_random_bytes(8).hex()
             prev_block_info = self._appoint_previous_block_info(step)
 
@@ -206,7 +205,11 @@ class Blockchain:
     def serialize_chain_blocks(self):
         for block_hash in self._block_hashes_list:
             block = self._hash_to_block[block_hash]
-            yield json.dumps(block, cls=BlockEncoder).encode('ascii')
+            yield self.serialize_block(block)
+
+    @staticmethod
+    def serialize_block(block: ChainBlock) -> bytes:
+        return json.dumps(block, cls=BlockEncoder).encode('ascii')
 
     @staticmethod
     def deserialize_block(byte_content):

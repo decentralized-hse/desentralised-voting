@@ -1,31 +1,31 @@
 from __future__ import annotations
 
+from datetime import datetime
 import random
 import socket
-from threading import Thread, Lock, Timer
+from threading import Thread, Lock, Event
 import time
-from typing import Dict, List, Any
+from typing import List, Dict, Any, Optional
+import math
 
 from Crypto.PublicKey import RSA
 from Crypto.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
 from VoteTypes import VoteType, MessageBuilder
 from Utils import get_hash
-from Blockchain import Blockchain, PeriodType
+from Blockchain import Blockchain, ChainBlock, PeriodType
 from enum import Enum
-from typing import Dict, Any, Optional
+import schedule
 
 
-# class ThreadWithReturn(Thread):
-#     def __init__(self, function):
-#         Thread.__init__(self)
-#         self.function = function
-#         self.value = None
-#
-#     def run(self, *args):
-#         self.value = self.function(*args)
+class ThreadWithReturn(Thread):
+    def __init__(self, function):
+        Thread.__init__(self)
+        self.function = function
+        self.value = None
 
-
+    def run(self, *args):
+        self.value = self.function(*args)
 
 
 class MessageHandler:
@@ -71,7 +71,7 @@ class MessageHandler:
                                                                  try_enter_name=try_enter_name,
                                                                  enter_vote=vote == "Yes")
 
-        # transmiting message to all susceptible nodes
+        # transmitting message to all susceptible nodes
         vote_thread = Thread(target=self.gossip_node.input_message, args=(message,))
         vote_thread.start()
 
@@ -89,6 +89,10 @@ class MessageHandler:
             # adding our vote plus the vote we received and spread our vote
             self.gossip_node.request_voting_process[key] = {message_dict['try_enter_name']}
             self.handle_vote_spreading(address, message_dict['try_enter_name'])
+
+    def handle_block(self, block_bytes):
+        block = self.gossip_node.blockchain.deserialize_block(block_bytes)
+        self.gossip_node.blockchain.try_add_block(block)
 
 
 class GossipNode:
@@ -108,7 +112,7 @@ class GossipNode:
     voting_progress = {}
     request_voting_process: Dict[(str, int), set] = {}
     candidates_keys = {}
-    step_period = 4
+    step_period_seconds = 4
 
     def __init__(self, host, port, connected_nodes: List[(str, int)], name,
                  enter_end_time=None, voting_end_time=None, candidates=None):
@@ -127,6 +131,7 @@ class GossipNode:
         self.signer = PKCS115_SigScheme(self.private_key)
         self.message_handler = MessageHandler(self)
         self.message_builder = MessageBuilder()
+        self.input_messages = []
 
         self.susceptible_nodes: List[(str, int)] = connected_nodes
         # clients that you are connected to and who already received message
@@ -207,95 +212,109 @@ class GossipNode:
                 self.blockchain.init_block.content['enter_end_time']
 
     def _get_move(self) -> int:
-        return int((time.time() - self.zero_step_start) / self.step_period)
-        # self.node.connect(('127.0.0.1', 12345))
-        # self.node.sendall(b'hello')
-        # message, address = self.node.recvfrom(2048)
-        # data = json.loads(message.decode('ascii'))
-        # self.move_number = data['move_number']
-        # self.move_time_left_sec = data['move_time_left_sec']
-        # print(f'move number = {self.move_number}; move time left = {self.move_time_left_sec}')
+        return int((time.time() - self.zero_step_start) / self.step_period_seconds)
 
     def fill_counters_from_chain(self):
         for block_content in self.blockchain.get_actual_chain_backwards():
             for message in block_content.values():
                 self.deal_with_received_message(message, None, True)
 
-    def step_updater(self):
+    def send_chain_block_immediately(self, block: ChainBlock):
+        bytes_block = self.blockchain.serialize_block(block)
+        message = self.message_builder.build_message(
+            VoteType.block,
+            signer=self.signer,
+            name=self.name,
+            block=bytes_block
+        )
+        infected_nodes = []
+        healthy_nodes = self.susceptible_nodes.copy()
+        self.transmit_message(json.dumps(message).encode('ascii'),
+                              infected_nodes,
+                              healthy_nodes)
+
+    def start_forming_block(self, move_number):
+        stop_event = Event()
+        thread = ThreadWithReturn(self.blockchain.try_form_block)
+        thread.run(move_number, stop_event)
+        while True:
+            time.sleep(5)
+            if (thread.value is not None) or \
+                    (move_number in self.blockchain._step_to_blocks_info):
+                if thread.value:
+                    self.send_chain_block_immediately(thread.value)
+                stop_event.set()
+                thread.join()
+                return
+
+    def update_jobs(self):
+        btrd = Thread(target=self.start_forming_block, args=[self.move_number])
+        btrd.start()
         self.move_number += 1
-        if time.time() > self._next_deadline:
-            self._next_state()
+        transmitting = Thread(target=self.transmit_all_formed_messages)
+        transmitting.start()
+        print('step', self.move_number, time.time())
+        transmitting.join()
+        btrd.join()
 
     def move_updater_loop(self):
-        Thread(target=self.step_updater).start()
-        if self.state == self.NodeState.finished:
-            return
-        Timer(self.step_period, self.move_updater_loop).start()
+        time_diff = time.time() - self.zero_step_start
+        self.move_number = math.trunc(time_diff / self.step_period_seconds) + 1
+        start_time = time.time() + self.move_number * self.step_period_seconds
+        time.sleep(start_time - time.time())
+        while True:
+            Thread(target=self.update_jobs).start()
+            time.sleep(self.step_period_seconds)
+
+    def set_period(self, period_type: PeriodType):
+        self.blockchain.init_block.current_period = period_type
+
+    def period_updater_loop(self):
+        start_time = [self.blockchain.init_block.enter_period[0],
+                      self.blockchain.init_block.vote_period[0]]
+        end_time = [self.blockchain.init_block.enter_period[1],
+                    self.blockchain.init_block.vote_period[1]]
+        period_type = [PeriodType.Enter, PeriodType.Vote]
+
+        for i in range(2):
+            time_start = datetime.strptime(start_time[i], '%H:%M')
+            while datetime.now().hour != time_start.hour or datetime.now().minute != time_start.minute:
+                time.sleep(1)
+            self.set_period(period_type[i])
+            time_end = datetime.strptime(end_time[i], '%H:%M')
+            while datetime.now().hour != time_end.hour or datetime.now().minute != time_end.minute:
+                time.sleep(1)
+            self.set_period(PeriodType.Default)
 
     def timer_launcher(self):
-        time_diff = time.time() - self.zero_step_start
-        self.move_number = time_diff / self.step_period
-        start_time = time.time() + (self.move_number + 1) * self.step_period
-        time.sleep(start_time - time.time())
-        self.move_updater_loop()
+        Thread(target=self.move_updater_loop).start()
+        Thread(target=self.period_updater_loop).start()
 
-    def monitor_moves(self):
-        while True:
-            while self.move_time_left_sec:
-                time.sleep(1)
-                self.move_time_left_sec -= 1
+    def transmit_all_formed_messages(self):
+        for message_info in self.input_messages:
+            message, infected_nodes, healthy_nodes = message_info
+            self.blockchain.add_transaction(message,
+                                            message['hash'],
+                                            message['start_time'])
 
-            self.move_number += 1
-            self.move_time_left_sec += 4
-            Thread(target=lambda: self.blockchain.try_form_block(
-                self.move_number)).start()
+            self.transmit_message(json.dumps(message).encode('ascii'),
+                                  infected_nodes,
+                                  healthy_nodes)
 
     def input_message(self, message):
         infected_nodes = []
         healthy_nodes = self.susceptible_nodes.copy()
-        self.blockchain.add_transaction(message,
-                                        message['hash'],
-                                        message['start_time'])
+        self.input_messages.append([message,
+                                    infected_nodes,
+                                    healthy_nodes])
 
-        self.transmit_message(json.dumps(message).encode('ascii'),
-                              infected_nodes,
-                              healthy_nodes)
         print(f'You successfully voted for {message["type"]}, {message["content"]}')
-
-    # def send_blockchain_requests(self):
-    #     req_message = self.message_builder.build_message(VoteType.ask_for_chain,
-    #                                                      signer=self.signer,
-    #                                                      name=self.name,
-    #                                                      public_key=self.public_key).body
-    #
-    #     self.input_message(req_message)
 
     def read_message_exists_answer(self, response):
         converted_dict = json.loads(response.decode('ascii'))
         if self._check_message(converted_dict):
             return set(converted_dict['extra'])
         return set()
-
-    # def ask_connected_for_messages(self, suspicious):
-    #     message = self.message_builder.build_message(VoteType.are_hashes_valid_request,
-    #                                                  signer=self.signer,
-    #                                                  name=self.name,
-    #                                                  what_is_it=suspicious)
-    #
-    #     temp_socket = socket.socket(type=socket.SOCK_DGRAM)
-    #     temp_socket.bind((self.hostname, 12345))
-    #     connected_nodes = self.susceptible_nodes.copy()
-    #     for node in connected_nodes:
-    #         temp_socket.sendto(json.dumps(message).encode('ascii'), node)
-    #     threads = []
-    #     for i in range(len(connected_nodes)):
-    #         temp_socket.settimeout(1)
-    #         response = temp_socket.recv(1024)
-    #         t = ThreadWithReturn(self.read_message_exists_answer)
-    #         t.run(response)
-    #         threads.append(t)
-    #     [t.join() for t in threads]
-    #     return set.intersection(t.value for t in threads)
 
     def _get_pub_key(self, message: Dict[str, Any], address):
         if message['type'] in [VoteType.enter_request, VoteType.ask_for_chain]:
@@ -362,7 +381,7 @@ class GossipNode:
             return
 
         # TODO think if we reduce content
-        if not from_chain:
+        if not from_chain and mes_dict['type'] != VoteType.block:
             self.blockchain.add_transaction(mes_dict, mes_dict['hash'], mes_dict['start_time'])
         if mes_dict['type'] == VoteType.enter_request:
             self.message_handler.handle_enter_request_to_transmit(address, mes_dict, not from_chain)
@@ -373,6 +392,8 @@ class GossipNode:
                     self.request_voting_process[mes_dict['try_enter_name']] = set()
             self.message_handler.handle_enter_vote_to_transmit(
                 mes_dict['try_enter_name'], mes_dict['try_enter_address'], mes_dict)
+        if mes_dict['type'] == VoteType.block:
+            self.message_handler.handle_block()
 
         # creating  copies so initial arrays stay the same for other messages
 
@@ -384,12 +405,11 @@ class GossipNode:
             except ValueError:
                 pass
             infected_nodes.append(address)
-            time.sleep(2)
+            # TODO W H Y is timesleep here?
+            # time.sleep(2)
             # send message to other connected clients
             self.transmit_message(json.dumps(mes_dict).encode('ascii'),
                                   infected_nodes, healthy_nodes)
-        # print("\nMessage is: '{0}'.\nReceived at [{1}] fro m [{2}]\n"
-        #       .format(json.dumps(mes_dict), time.ctime(time.time()), address))
 
     # method that receives a message and send it to other connected clients
     def receive_message(self):
@@ -427,15 +447,10 @@ class GossipNode:
                 print(f"Voting period has changed. Current period is '{period.name}'"
                       f"This means you can now only send and receive messages of types: {period.value}")
 
-
     def start_threads(self):
         Thread(target=self.receive_message).start()
-        # New method if we really want this:
-        #Thread(target=self.send_blockchain_requests).start()
         Thread(target=self.timer_launcher).start()
         Thread(target=self._inform_user_about_period_changing).start()
-        # TODO think about step number updating
-        #Thread(target=self._refresh_step_start).start()
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.state = self.NodeState.finished
