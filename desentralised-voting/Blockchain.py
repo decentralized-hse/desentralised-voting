@@ -3,15 +3,14 @@ from __future__ import annotations
 import datetime
 import time
 from enum import Enum
-from threading import Lock
+from threading import Lock, Event
 from collections import defaultdict
 import json
 import operator
 from MerkelTree import MerkelTree
-from Cryptodome import Random
-from Cryptodome.Hash import SHA256
+from Crypto import Random
+from Crypto.Hash import SHA256
 from typing import List, Dict, Any, Optional
-import schedule
 from VoteTypes import VoteType
 
 
@@ -32,7 +31,7 @@ class ChainBlock:
                  nonce: str,
                  parent_hash: Optional[str],
                  merkel_tree: MerkelTree,
-                 content: Any,
+                 content: Dict[str, Any],
                  step: int,
                  branch_blocks_count: int):
         self.hash = node_hash
@@ -59,7 +58,7 @@ class InitBlock(ChainBlock):
                  step: int,
                  branch_blocks_count: int):
         super().__init__(node_hash, nonce, None, merkel_tree, content, step, branch_blocks_count)
-        self.step_length = datetime.timedelta(seconds=4)
+        self.step_length: type(datetime.timedelta) = datetime.timedelta(seconds=4)
         self.start_date = datetime.datetime.now()
         self.start_time = self.start_date.timestamp()
         self.enter_period = ["00:00", "12:00"]
@@ -85,7 +84,6 @@ class Blockchain:
 
         self._hash_to_block: Dict[str, ChainBlock] = dict()
         self._step_to_blocks_info = defaultdict(list)
-        self._block_hashes_list: List[str] = []
         self.init_block: InitBlock
 
         if root_content is not None:
@@ -93,7 +91,6 @@ class Blockchain:
             self._hash_to_block[init_block.hash] = init_block
             self._step_to_blocks_info[0].append(
                 ShortBlockInfo(init_block.hash, init_block.blocks_count))
-            self._block_hashes_list.append(init_block.hash)
             self.init_block = init_block
 
         self._pool_time_key: Dict[float, str] = dict()
@@ -114,16 +111,18 @@ class Blockchain:
             self._hash_to_content[content_hash] = content
             self._pool_time_key[time] = content_hash
 
-    def try_form_block(self, step: int):
+    def try_form_block(self, step: int, stopper: Event) -> Optional[ChainBlock]:
         with self._lock:
             block_pool, self._pool_time_key = self._pool_time_key, dict()
             contents, self._hash_to_content = self._hash_to_content, dict()
         if len(block_pool) == 0:
-            return
+            return None
         block_hashes_ordered = [block_pool[t] for t in sorted(block_pool)]
         block_merkle_tree = MerkelTree(block_hashes_ordered)
         pow_hash, nonce, prev_block_info = \
-            self._pow_block(block_merkle_tree.tree_top.value, step)
+            self._pow_block(block_merkle_tree.tree_top.value, step, stopper)
+        if stopper.is_set():
+            return None
 
         block = ChainBlock(pow_hash,
                            nonce,
@@ -133,6 +132,7 @@ class Blockchain:
                            step,
                            prev_block_info.blocks_count + 1)
         self._add_block_to_chain(block)
+        return block
 
     def try_add_block(self, block: ChainBlock, skip_checks=False) -> bool:
         if not skip_checks and (not self._validate_hashes(block) or
@@ -148,7 +148,6 @@ class Blockchain:
             self._hash_to_block[block.hash] = block
             self._step_to_blocks_info[block.step].append(
                 ShortBlockInfo(block.hash, block.blocks_count))
-            self._block_hashes_list.append(block.hash)
 
     def _validate_hashes(self, block: ChainBlock) -> bool:
         if block.parent_hash is None:
@@ -163,14 +162,17 @@ class Blockchain:
     def _validate_parent(self, block: ChainBlock) -> bool:
         if block.parent_hash is None:
             return True
-        if block.parent_hash not in self._block_hashes_list:
+        if block.parent_hash not in self._hash_to_block:
             return False
         parent_block = self._hash_to_block[block.parent_hash]
         return (parent_block.step < block.step and
                 parent_block.blocks_count + 1 == block.blocks_count)
 
-    def _pow_block(self, merkle_root_hash: str, step: int) -> (str, str, ShortBlockInfo):
+    def _pow_block(self, merkle_root_hash: str, step: int, stopper: Event) \
+            -> (str, str, ShortBlockInfo):
         while True:
+            if stopper.is_set():
+                return None, None, None
             nonce = Random.get_random_bytes(8).hex()
             prev_block_info = self._appoint_previous_block_info(step)
 
@@ -185,30 +187,51 @@ class Blockchain:
             if len(candidates) > 0:
                 return max(candidates, key=lambda c: c.blocks_count)
 
-    def get_actual_chain_backwards(self):
+    def _get_tail_block_hash_naive(self) -> str:
         last_step = max(self._step_to_blocks_info)
-        block_hash = sorted(self._step_to_blocks_info[last_step],
-                            key=operator.attrgetter('blocks_count'),
-                            reverse=True)[0].hash
+        return sorted(self._step_to_blocks_info[last_step],
+                      key=operator.attrgetter('blocks_count'),
+                      reverse=True)[0].hash
+
+    def try_find_transaction_hash_from(self, step: int, target_hash: str):
+        block_hash = self._get_tail_block_hash_naive()
+        block = self._hash_to_block[block_hash]
+        while block.step >= step:
+            for transaction_hash in block.content:
+                if transaction_hash == target_hash:
+                    return True
+            block = self._hash_to_block[block.parent_hash]
+        return False
+
+    def get_actual_chain_backwards(self):
+        block_hash = self._get_tail_block_hash_naive()
         while True:
-            if block_hash is None:
+            if block_hash == self.init_block.hash:
                 return
             block = self._hash_to_block[block_hash]
             yield block.content
             block_hash = block.parent_hash
 
     def serialize_chain_blocks(self):
-        for block_hash in self._block_hashes_list:
+        for block_hash in self._hash_to_block:
             block = self._hash_to_block[block_hash]
-            yield json.dumps(block, cls=BlockEncoder).encode('ascii')
+            yield self.block_to_json(block).encode('ascii')
 
     @staticmethod
-    def deserialize_block(byte_content):
-        content = json.loads(byte_content.decode('ascii'))
+    def block_to_json(block: ChainBlock) -> str:
+        return json.dumps(block, cls=BlockEncoder)
+
+    @staticmethod
+    def deserialize_block(byte_content: bytes):
+        return Blockchain.deserialize_block_from_json(byte_content.decode('ascii'))
+
+    @staticmethod
+    def deserialize_block_from_json(json_content: str):
+        content = json.loads(json_content)
         return ChainBlock(content['hash'],
                           content['nonce'],
                           content['parent_hash'],
                           content['merkel_tree'],
                           content['content'],
                           content['step'],
-                          content['blocks_count'],)
+                          content['blocks_count'], )
