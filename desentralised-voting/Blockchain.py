@@ -84,7 +84,6 @@ class Blockchain:
 
         self._hash_to_block: Dict[str, ChainBlock] = dict()
         self._step_to_blocks_info = defaultdict(list)
-        self._block_hashes_list: List[str] = []
         self.init_block: InitBlock
 
         if root_content is not None:
@@ -92,7 +91,6 @@ class Blockchain:
             self._hash_to_block[init_block.hash] = init_block
             self._step_to_blocks_info[0].append(
                 ShortBlockInfo(init_block.hash, init_block.blocks_count))
-            self._block_hashes_list.append(init_block.hash)
             self.init_block = init_block
 
         self._pool_time_key: Dict[float, str] = dict()
@@ -150,7 +148,6 @@ class Blockchain:
             self._hash_to_block[block.hash] = block
             self._step_to_blocks_info[block.step].append(
                 ShortBlockInfo(block.hash, block.blocks_count))
-            self._block_hashes_list.append(block.hash)
 
     def _validate_hashes(self, block: ChainBlock) -> bool:
         if block.parent_hash is None:
@@ -165,7 +162,7 @@ class Blockchain:
     def _validate_parent(self, block: ChainBlock) -> bool:
         if block.parent_hash is None:
             return True
-        if block.parent_hash not in self._block_hashes_list:
+        if block.parent_hash not in self._hash_to_block:
             return False
         parent_block = self._hash_to_block[block.parent_hash]
         return (parent_block.step < block.step and
@@ -203,6 +200,7 @@ class Blockchain:
             for transaction_hash in block.content:
                 if transaction_hash == target_hash:
                     return True
+            block = self._hash_to_block[block.parent_hash]
         return False
 
     def get_actual_chain_backwards(self):
@@ -215,21 +213,25 @@ class Blockchain:
             block_hash = block.parent_hash
 
     def serialize_chain_blocks(self):
-        for block_hash in self._block_hashes_list:
+        for block_hash in self._hash_to_block:
             block = self._hash_to_block[block_hash]
-            yield self.serialize_block(block)
+            yield self.block_to_json(block).encode('ascii')
 
     @staticmethod
-    def serialize_block(block: ChainBlock) -> bytes:
-        return json.dumps(block, cls=BlockEncoder).encode('ascii')
+    def block_to_json(block: ChainBlock) -> str:
+        return json.dumps(block, cls=BlockEncoder)
 
     @staticmethod
-    def deserialize_block(byte_content):
-        content = json.loads(byte_content.decode('ascii'))
+    def deserialize_block(byte_content: bytes):
+        return Blockchain.deserialize_block_from_json(byte_content.decode('ascii'))
+
+    @staticmethod
+    def deserialize_block_from_json(json_content: str):
+        content = json.loads(json_content)
         return ChainBlock(content['hash'],
                           content['nonce'],
                           content['parent_hash'],
                           content['merkel_tree'],
                           content['content'],
                           content['step'],
-                          content['blocks_count'],)
+                          content['blocks_count'], )

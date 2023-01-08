@@ -90,8 +90,8 @@ class MessageHandler:
             self.gossip_node.request_voting_process[key] = {message_dict['try_enter_name']}
             self.handle_vote_spreading(address, message_dict['try_enter_name'])
 
-    def handle_block(self, block_bytes):
-        block = self.gossip_node.blockchain.deserialize_block(block_bytes)
+    def handle_block(self, block_json):
+        block = self.gossip_node.blockchain.deserialize_block_from_json(block_json)
         self.gossip_node.blockchain.try_add_block(block)
 
 
@@ -220,12 +220,12 @@ class GossipNode:
                 self.deal_with_received_message(message, None, True)
 
     def send_chain_block_immediately(self, block: ChainBlock):
-        bytes_block = self.blockchain.serialize_block(block)
+        json_block = self.blockchain.block_to_json(block)
         message = self.message_builder.build_message(
             VoteType.block,
             signer=self.signer,
             name=self.name,
-            block=bytes_block
+            block=json_block
         )
         infected_nodes = []
         healthy_nodes = self.susceptible_nodes.copy()
@@ -244,8 +244,7 @@ class GossipNode:
                 if thread.value:
                     self.send_chain_block_immediately(thread.value)
                 stop_event.set()
-                thread.join()
-                return
+                break
 
     def update_jobs(self):
         btrd = Thread(target=self.start_forming_block, args=[self.move_number])
@@ -290,7 +289,7 @@ class GossipNode:
         Thread(target=self.move_updater_loop).start()
         Thread(target=self.period_updater_loop).start()
 
-    def _track_message_in_chain(self, message, block_step):
+    def _track_message_in_chain(self, message, block_step: int):
         time.sleep(self.step_period_seconds * 3)
         if not self.blockchain.try_find_transaction_hash_from(block_step,
                                                               message['hash']):
@@ -306,7 +305,7 @@ class GossipNode:
             self.transmit_message(json.dumps(message).encode('ascii'),
                                   infected_nodes,
                                   healthy_nodes)
-            if message.type in [VoteType.enter_request, VoteType.enter_vote]:
+            if message['type'] in [VoteType.enter_request, VoteType.enter_vote]:
                 Thread(target=self._track_message_in_chain,
                        args=[message, self.move_number])
 
@@ -402,7 +401,7 @@ class GossipNode:
             self.message_handler.handle_enter_vote_to_transmit(
                 mes_dict['try_enter_name'], mes_dict['try_enter_address'], mes_dict)
         if mes_dict['type'] == VoteType.block:
-            self.message_handler.handle_block()
+            self.message_handler.handle_block(mes_dict['block'])
 
         # creating  copies so initial arrays stay the same for other messages
 

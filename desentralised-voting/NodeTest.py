@@ -1,4 +1,5 @@
 import time
+from threading import Event
 from unittest import TestCase
 from GossipNode import GossipNode
 from VoteTypes import VoteType
@@ -53,3 +54,19 @@ class NodeTest(TestCase):
             self.assertEqual(len(node1.request_voting_process), 2)
             self.assertEqual(len(node1.request_voting_process['firsta']), 1)
             self.assertEqual(len(node1.request_voting_process['firstb']), 0)
+
+    def test_message_tracking(self):
+        with GossipNode('127.0.0.1', 5000, [], 'first', 0, 0, []) as node1:
+            node1.blockchain.add_transaction('content', 'hash', time.time())
+            node1.blockchain.try_form_block(1, Event())
+            msg = node1.message_builder.build_message(
+                VoteType.enter_request,
+                signer=node1.signer,
+                name=node1.name,
+                public_key=node1.public_key)
+            print('track sleep')
+            node1._track_message_in_chain(msg, 1)
+            print('resent message, wait 2 steps for block forming')
+            time.sleep(node1.step_period_seconds * 4)
+            f = node1.blockchain.try_find_transaction_hash_from(1, msg['hash'])
+            self.assertTrue(f)
