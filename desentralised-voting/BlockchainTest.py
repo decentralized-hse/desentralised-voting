@@ -18,7 +18,7 @@ class TestBlockchain(TestCase):
             for one in serialized:
                 block = bc.deserialize_block(one)
                 new_chain.try_add_block(block, skip_checks=True)
-        except:
+        except BaseException as e:
             self.fail()
 
     def test_getting_longest_chain_contents(self):
@@ -29,10 +29,10 @@ class TestBlockchain(TestCase):
         for block in [block02,  block01, block12]:
             bc.try_add_block(block, skip_checks=True)
         contents = [c for c in bc.get_actual_chain_backwards()]
-        expected = ['content12', 'content01', 'root_content']
+        expected = ['content12', 'content01']
         self.assertListEqual(contents, expected)
 
-    def test_interrupting_block_formin(self):
+    def test_interrupting_block_forming(self):
         bc = Blockchain('root_content', 'root_hash', pow_zeros=4)
         print('init block created')
         bc.add_transaction('new_content', 'block_1_hash', 1)

@@ -15,8 +15,8 @@ from VoteTypes import VoteType
 
 
 class BlockEncoder(json.JSONEncoder):
-    def default(self, blockchain_object: ChainBlock):
-        return blockchain_object.__dict__
+    def default(self, object):
+        return object.__dict__
 
 
 class ChainTransactionHashes:
@@ -58,15 +58,13 @@ class InitBlock(ChainBlock):
                  step: int,
                  branch_blocks_count: int):
         super().__init__(node_hash, nonce, None, merkel_tree, content, step, branch_blocks_count)
-        self.step_length: type(datetime.timedelta) = datetime.timedelta(seconds=4)
-        self.start_date = datetime.datetime.now()
-        self.start_time = self.start_date.timestamp()
+        self.step_length_in_seconds = 4
+        self.start_time = datetime.datetime.now().timestamp()
         self.enter_period = ["00:00", "12:00"]
         self.vote_period = ["12:00", "00:00"]
-        self.current_period: PeriodType = PeriodType.Default
         self.voting_topic = "DECENT ELECTIONS"
-        self.enter_period_options = {"Yes", "No"}
-        self.voting_period_options = {"Vladimir Putin", "Dmitriy Medvedev(wrong choice)", "I wanna go to jail"}
+        self.enter_period_options = ["Yes", "No"]
+        self.voting_period_options = ["Vladimir Putin", "Dmitriy Medvedev(wrong choice)", "I wanna go to jail"]
 
 
 class ShortBlockInfo:
@@ -215,7 +213,7 @@ class Blockchain:
     def serialize_chain_blocks(self):
         for block_hash in self._hash_to_block:
             block = self._hash_to_block[block_hash]
-            yield self.block_to_json(block).encode('ascii')
+            yield json.dumps(block, cls=BlockEncoder).encode('ascii')
 
     @staticmethod
     def block_to_json(block: ChainBlock) -> str:
@@ -228,6 +226,21 @@ class Blockchain:
     @staticmethod
     def deserialize_block_from_json(json_content: str):
         content = json.loads(json_content)
+        if content['step'] == 0:
+            block = InitBlock(content['hash'],
+                              content['nonce'],
+                              content['merkel_tree'],
+                              content['content'],
+                              content['step'],
+                              content['blocks_count'])
+            block.step_length_in_seconds = content['step_length_in_seconds']
+            block.start_time = content['start_time']
+            block.enter_period = content['enter_period']
+            block.vote_period = content['vote_period']
+            block.voting_topic = content['voting_topic']
+            block.enter_period_options = content['enter_period_options']
+            block.voting_period_options = content['voting_period_options']
+            return block
         return ChainBlock(content['hash'],
                           content['nonce'],
                           content['parent_hash'],
