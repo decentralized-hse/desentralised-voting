@@ -48,7 +48,7 @@ class NodeBlockchainTest(TestCase):
             node1.blockchain.add_transaction(vote_message,
                                              vote_message['hash'],
                                              time.time())
-            node1.blockchain.try_form_block(2)
+            node1.blockchain.try_form_block(2, Event())
             node1.fill_counters_from_chain()
 
             self.assertEqual(len(node1.request_voting_process), 2)
