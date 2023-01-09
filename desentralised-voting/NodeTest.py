@@ -15,12 +15,12 @@ class NodeBlockchainTest(TestCase):
     def test_getting_chain_with_several_blocks(self):
         with GossipNode('127.0.0.1', 5000, [], 'first', 0, 0, []) as node1:
             node1.blockchain.add_transaction('content', 'hash', time.time())
-            node1.blockchain.try_form_block(1)
+            node1.blockchain.try_form_block(1, Event())
             node1.blockchain.add_transaction('content2', 'hash2', time.time())
-            node1.blockchain.try_form_block(2)
+            node1.blockchain.try_form_block(2, Event())
             with GossipNode('127.0.0.2', 5000, [('127.0.0.1', 5000)], 'second') as node2:
-                self.assertListEqual(node1.blockchain._block_hashes_list,
-                                     node2.blockchain._block_hashes_list)
+                self.assertListEqual(list(node1.blockchain._hash_to_block.keys()),
+                                     list(node2.blockchain._hash_to_block.keys()))
 
     def test_getting_info_from_chain(self):
         with GossipNode('127.0.0.1', 5000, [], 'first', 0, 0, []) as node1:
@@ -36,7 +36,7 @@ class NodeBlockchainTest(TestCase):
                 name='firstb',
                 public_key=node1.public_key)
             node1.blockchain.add_transaction(enter_msg, enter_msg['hash'], 1)
-            node1.blockchain.try_form_block(1)
+            node1.blockchain.try_form_block(1, Event())
 
             vote_message = node1.message_builder.build_message(
                 VoteType.enter_vote,
