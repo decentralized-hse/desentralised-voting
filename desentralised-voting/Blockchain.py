@@ -46,7 +46,7 @@ class ChainBlock:
 class PeriodType(List[VoteType], Enum):
     Default = []
     Enter = [VoteType.enter_request, VoteType.ask_for_chain]
-    Vote = [VoteType.enter_vote]
+    Vote = [VoteType.enter_vote, VoteType.process_vote]
 
 
 class InitBlock(ChainBlock):
