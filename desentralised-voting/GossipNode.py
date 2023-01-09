@@ -48,7 +48,8 @@ class MessageHandler:
         self.gossip_node.susceptible_nodes.append(address)
         if message_dict['name'] not in self.gossip_node.request_voting_process.keys():
             self.gossip_node.request_voting_process[message_dict['name']] = set()
-        self.gossip_node.candidates_keys[message_dict['name']] = message_dict['public_key']
+        key_addr = address[0] + ':' + str(address[1])
+        self.gossip_node.candidates_keys[key_addr] = message_dict['public_key']
 
         if ask_vote:
             self.handle_vote_spreading(address, message_dict['name'])
@@ -75,7 +76,7 @@ class MessageHandler:
         vote_thread = Thread(target=self.gossip_node.input_message, args=(message,))
         vote_thread.start()
 
-    def handle_enter_vote_to_transmit(self, key, address, message_dict: Dict[str, Any]):
+    def handle_enter_vote_to_transmit(self, key, address: str, message_dict: Dict[str, Any]):
         # we already know about this node and voted for it
         if key in self.gossip_node.request_voting_process.keys():
             # adding received vote if it wasn't added already (that's why set)
@@ -83,7 +84,7 @@ class MessageHandler:
 
             # checking if there is enough votes for applying node to be trusted
             if len(self.gossip_node.request_voting_process[key]) == 2:
-                self.gossip_node.other_public_keys[address] = self.gossip_node.candidates_keys.pop(address)
+                self.gossip_node.address_port_to_public_key[address] = self.gossip_node.candidates_keys.pop(address)
 
         else:
             # adding our vote plus the vote we received and spread our vote
@@ -124,10 +125,12 @@ class GossipNode:
         self.node.bind((self.hostname, self.port))
         self.state = self.NodeState.not_inited
         self.blockchain: Optional[Blockchain] = None
+        self.current_period: PeriodType = PeriodType.Default
 
         self.private_key = RSA.generate(2048)
         self.public_key = self.private_key.publickey().export_key().decode(
             encoding='latin1')
+        print('keys generated for', name)
         self.signer = PKCS115_SigScheme(self.private_key)
         self.message_handler = MessageHandler(self)
         self.message_builder = MessageBuilder()
@@ -135,7 +138,7 @@ class GossipNode:
 
         self.susceptible_nodes: List[(str, int)] = connected_nodes
         # clients that you are connected to and who already received message
-        self.other_public_keys = dict()
+        self.address_port_to_public_key: Dict[str, ] = dict()
         self.prev_message_time_to_hashes = dict()
 
         # Why did we use threads here?
@@ -266,7 +269,7 @@ class GossipNode:
             time.sleep(self.step_period_seconds)
 
     def set_period(self, period_type: PeriodType):
-        self.blockchain.init_block.current_period = period_type
+        self.current_period = period_type
 
     def period_updater_loop(self):
         start_time = [self.blockchain.init_block.enter_period[0],
@@ -296,7 +299,8 @@ class GossipNode:
             self.input_messages.append([message, [], self.susceptible_nodes.copy()])
 
     def transmit_all_formed_messages(self):
-        for message_info in self.input_messages:
+        self.input_messages, to_transmit = [], self.input_messages
+        for message_info in to_transmit:
             message, infected_nodes, healthy_nodes = message_info
             self.blockchain.add_transaction(message,
                                             message['hash'],
@@ -324,10 +328,10 @@ class GossipNode:
             return set(converted_dict['extra'])
         return set()
 
-    def _get_pub_key(self, message: Dict[str, Any], address):
+    def _get_pub_key(self, message: Dict[str, Any], address: (str, int)):
         if message['type'] in [VoteType.enter_request, VoteType.ask_for_chain]:
             return message['public_key'].encode(encoding='latin1')
-        return self.other_public_keys.get(address, None) #here was try except
+        return self.address_port_to_public_key.get(address[0] + ':' + str(address[1]), None)
 
     def _common_checks(self, message, pub_key):
         copy_to_check = message.copy()
@@ -361,10 +365,10 @@ class GossipNode:
         if message['name'] == self.name:
             return False
 
-        if self.blockchain.init_block.current_period == PeriodType.Vote and message['type'] == VoteType.enter_request:
+        if self.current_period == PeriodType.Vote and message['type'] == VoteType.enter_request:
             return False
 
-        if self.blockchain.init_block.current_period == PeriodType.Enter and message['type'] == VoteType.enter_vote:
+        if self.current_period == PeriodType.Enter and message['type'] == VoteType.enter_vote:
             return False
 
         # if we do not trust sending node
@@ -400,7 +404,7 @@ class GossipNode:
                     self.request_voting_process[mes_dict['try_enter_name']] = set()
             self.message_handler.handle_enter_vote_to_transmit(
                 mes_dict['try_enter_name'], mes_dict['try_enter_address'], mes_dict)
-        if mes_dict['type'] == VoteType.block:
+        if mes_dict['type'] == VoteType.block.value:
             self.message_handler.handle_block(mes_dict['block'])
 
         # creating  copies so initial arrays stay the same for other messages
@@ -413,8 +417,6 @@ class GossipNode:
             except ValueError:
                 pass
             infected_nodes.append(address)
-            # TODO W H Y is timesleep here?
-            # time.sleep(2)
             # send message to other connected clients
             self.transmit_message(json.dumps(mes_dict).encode('ascii'),
                                   infected_nodes, healthy_nodes)
@@ -425,8 +427,8 @@ class GossipNode:
             if self.state == self.NodeState.finished:
                 return
             try:
-                message_to_forward, address = self.node.recvfrom(2048)
-            except:
+                message_to_forward, address = self.node.recvfrom(4096)
+            except BaseException as e:
                 continue
             mes_dict = json.loads(message_to_forward.decode('ascii'))
             Thread(target=self.deal_with_received_message,
@@ -449,10 +451,10 @@ class GossipNode:
             #time.sleep(2)
 
     def _inform_user_about_period_changing(self):
-        period = self.blockchain.init_block.current_period
+        period = self.current_period
         while True:
-            if period != self.blockchain.init_block.current_period:
-                period = self.blockchain.init_block.current_period
+            if period != self.current_period:
+                period = self.current_period
                 print(f"Voting period has changed. Current period is '{period.name}'"
                       f"This means you can now only send and receive messages of types: {period.value}")
 

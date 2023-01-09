@@ -5,7 +5,7 @@ from GossipNode import GossipNode
 from VoteTypes import VoteType
 
 
-class NodeTest(TestCase):
+class NodeBlockchainTest(TestCase):
     def test_getting_chain_with_one_block(self):
         with GossipNode('127.0.0.1', 5000, [], 'first', 0, 0, []) as node1:
             with GossipNode('127.0.0.2', 5000, [('127.0.0.1', 5000)], 'second') as node2:
@@ -55,7 +55,7 @@ class NodeTest(TestCase):
             self.assertEqual(len(node1.request_voting_process['firsta']), 1)
             self.assertEqual(len(node1.request_voting_process['firstb']), 0)
 
-    def test_message_tracking(self):
+    def test_message_in_chain_tracking(self):
         with GossipNode('127.0.0.1', 5000, [], 'first', 0, 0, []) as node1:
             node1.blockchain.add_transaction('content', 'hash', time.time())
             node1.blockchain.try_form_block(1, Event())
@@ -70,3 +70,25 @@ class NodeTest(TestCase):
             time.sleep(node1.step_period_seconds * 4)
             f = node1.blockchain.try_find_transaction_hash_from(1, msg['hash'])
             self.assertTrue(f)
+
+
+class NodeMessagingTest(TestCase):
+    def test_recieve_block(self):
+        addr1 = ('127.0.0.1', 5000)
+        addr2 = '127.0.0.2:5000'
+        with GossipNode('127.0.0.1', 5000, [], 'first', 0, 0, []) as node1:
+            with GossipNode('127.0.0.2', 5000, [addr1], 'second') as node2:
+                node1.address_port_to_public_key[addr2] = node2.public_key
+                vote_message = node2.message_builder.build_message(
+                    VoteType.enter_vote,
+                    signer=node2.signer,
+                    name=node2.name,
+                    try_enter_address='127.0.0.1:5000',
+                    try_enter_name='firsta',
+                    enter_vote=True)
+                node2.blockchain.add_transaction(vote_message,
+                                                 vote_message['hash'],
+                                                 time.time())
+                block = node2.blockchain.try_form_block(1, Event())
+                node2.send_chain_block_immediately(block)
+                self.assertTrue(block.hash in node1.blockchain._hash_to_block)
