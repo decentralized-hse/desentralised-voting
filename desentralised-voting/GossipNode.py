@@ -73,7 +73,7 @@ class MessageHandler:
                                                                  enter_vote=vote == "Yes")
 
         # transmitting message to all susceptible nodes
-        vote_thread = Thread(target=self.gossip_node.input_message, args=(json.dumps(message).encode('ascii'),))
+        vote_thread = Thread(target=self.gossip_node.input_message, args=(message,))
         vote_thread.start()
 
     def handle_enter_vote_to_transmit(self, key, address: str, message_dict: Dict[str, Any]):
@@ -127,7 +127,7 @@ class MessageHandler:
                                                                  name=self.gossip_node.name,
                                                                  process_vote_option=vote)
         # transmitting message to all susceptible nodes
-        Thread(target=self.gossip_node.input_message, args=(json.dumps(message).encode('ascii'),)).start()
+        Thread(target=self.gossip_node.input_message, args=(message,)).start()
 
 
 class GossipNode:
@@ -234,7 +234,7 @@ class GossipNode:
             signer=self.signer,
             name=self.name,
             public_key=self.public_key)
-        Thread(target=self.input_message, args=(json.dumps(message).encode('ascii'),)).start()
+        Thread(target=self.input_message, args=(message,)).start()
 
     def _next_state(self):
         if self.state == self.NodeState.voting:
@@ -347,10 +347,10 @@ class GossipNode:
                 Thread(target=self._track_message_in_chain,
                        args=[message, self.move_number])
 
-    def input_message(self, message: bytes):
+    def input_message(self, mes_dict: dict):
         infected_nodes = []
         healthy_nodes = self.susceptible_nodes.copy()
-        self.input_messages.append([message,
+        self.input_messages.append([mes_dict,
                                     infected_nodes,
                                     healthy_nodes])
 
