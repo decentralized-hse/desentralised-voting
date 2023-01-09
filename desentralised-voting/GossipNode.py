@@ -72,7 +72,7 @@ class MessageHandler:
                                                                  enter_vote=vote == "Yes")
 
         # transmitting message to all susceptible nodes
-        vote_thread = Thread(target=self.gossip_node.input_message, args=(message,))
+        vote_thread = Thread(target=self.gossip_node.input_message, args=(json.dumps(message).encode('ascii'),))
         vote_thread.start()
 
     def handle_enter_vote_to_transmit(self, key, address, message_dict: Dict[str, Any]):
@@ -87,12 +87,46 @@ class MessageHandler:
 
         else:
             # adding our vote plus the vote we received and spread our vote
-            self.gossip_node.request_voting_process[key] = {message_dict['try_enter_name']}
+            self.gossip_node.request_voting_process[key] = {message_dict['name']}
             self.handle_vote_spreading(address, message_dict['try_enter_name'])
+        Thread(target=self.gossip_node.transmit_message, args=(json.dumps(message_dict).encode('ascii'),
+                                                               [],
+                                                               self.gossip_node.susceptible_nodes.copy())).start()
 
     def handle_block(self, block_json):
         block = self.gossip_node.blockchain.deserialize_block_from_json(block_json)
         self.gossip_node.blockchain.try_add_block(block)
+
+    def handle_process_vote(self, message_dict: Dict[str, Any]):
+        vote = message_dict['process_vote_option']
+        if vote in self.gossip_node.voting_process:
+            self.gossip_node.voting_process[vote].add(message_dict['name'])
+            Thread(target=self.gossip_node.transmit_message, args=(json.dumps(message_dict).encode('ascii'),
+                                                                   [],
+                                                                   self.gossip_node.susceptible_nodes.copy())).start()
+        else:
+            print('This fucker tries to falsify our honest, decent and most trusted votes')
+
+    def handle_process_vote_spreading(self):
+        vote_options = self.gossip_node.blockchain.init_block.voting_period_options
+        # asking user to vote
+        vote = None
+        while vote not in vote_options:
+            vote = input(f"New election has begun. Vote! Or don't, it doesn't really matter these days"
+                         f"Candidates are: {vote_options}"
+                         "Type the exact name of a candidate you want to vote for. All other messages "
+                         "including candidates names with typos will not be considered.")
+
+        # add our vote
+        self.gossip_node.voting_process[vote].add(self.gossip_node.name)
+
+        # building message to spread voting
+        message = self.gossip_node.message_builder.build_message(VoteType.process_vote,
+                                                                 signer=self.gossip_node.signer,
+                                                                 name=self.gossip_node.name,
+                                                                 process_vote_option=vote)
+        # transmitting message to all susceptible nodes
+        Thread(target=self.gossip_node.input_message, args=(json.dumps(message).encode('ascii'),)).start()
 
 
 class GossipNode:
@@ -104,12 +138,12 @@ class GossipNode:
 
     """
     difficulty_level == amount of zeros in the beginning of hash that brove your work
-    voting_progress == current state of election
+    voting_process == current state of election
     """
 
     difficulty_level = 2
     key_difficulty_level = 1
-    voting_progress = {}
+    voting_process = {}
     request_voting_process: Dict[(str, int), set] = {}
     candidates_keys = {}
     step_period_seconds = 4
@@ -197,7 +231,7 @@ class GossipNode:
             signer=self.signer,
             name=self.name,
             public_key=self.public_key)
-        Thread(target=self.input_message, args=(message,)).start()
+        Thread(target=self.input_message, args=(json.dumps(message).encode('ascii'),)).start()
 
     def _next_state(self):
         if self.state == self.NodeState.voting:
@@ -309,14 +343,14 @@ class GossipNode:
                 Thread(target=self._track_message_in_chain,
                        args=[message, self.move_number])
 
-    def input_message(self, message):
+    def input_message(self, message: bytes):
         infected_nodes = []
         healthy_nodes = self.susceptible_nodes.copy()
         self.input_messages.append([message,
                                     infected_nodes,
                                     healthy_nodes])
 
-        print(f'You successfully voted for {message["type"]}, {message["content"]}')
+        # print(f'You successfully voted for {message["type"]}, {message["content"]}')
 
     def read_message_exists_answer(self, response):
         converted_dict = json.loads(response.decode('ascii'))
@@ -388,6 +422,10 @@ class GossipNode:
             self.message_handler.handle_chain_request(mes_dict['tcp_host'], mes_dict['tcp_port'])
             return
 
+        if mes_dict['type'] == VoteType.process_vote:
+            self.message_handler.handle_process_vote(mes_dict)
+            return
+
         # TODO think if we reduce content
         if not from_chain and mes_dict['type'] != VoteType.block:
             self.blockchain.add_transaction(mes_dict, mes_dict['hash'], mes_dict['start_time'])
@@ -445,8 +483,8 @@ class GossipNode:
 
             healthy_nodes.remove(selected_node)
             infected_nodes.append(selected_node)
-            #TODO W H Y timesleep???
-            #time.sleep(2)
+            # TODO W H Y timesleep???
+            # time.sleep(2)
 
     def _inform_user_about_period_changing(self):
         period = self.blockchain.init_block.current_period
