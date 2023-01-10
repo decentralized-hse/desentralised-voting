@@ -12,7 +12,6 @@ class MerkelTreeNode:
 
 class MerkelTree:
     def __init__(self, node_data: [dict]):
-        print(node_data)
         # self.inner_nodes = node_data
         self.tree_top = self.build_merkle_tree(node_data)
 

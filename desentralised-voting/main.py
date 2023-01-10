@@ -16,12 +16,14 @@ def main():
     #                         params={'input': f'{host}:{port}'})
     # nodes_to_connect = list(map(lambda x: tuple(x), response.json()['addresses']))
     nodes_to_connect = []
+    name = input("Enter your name: ")
     if len(nodes_to_connect) == 0:
         print("You are an initiator of the voting, "
               "please write down your conditions")
-        print("Current time:", time())
-        enter_end_time = input("Enter end time:")
-        voting_end_time = input("Voting end time:")
+        print("Voting will start and finish today")
+        print("Please input time in HH:MM format.")
+        enter_end_time = input("Enter end time: ")
+        voting_end_time = input("Voting end time: ")
         print("Candidates:")
         candidates = []
         while True:
@@ -29,7 +31,11 @@ def main():
             if candidate == '':
                 break
             candidates.append(candidate)
-    node = GossipNode(host, port, nodes_to_connect, "first")
+        node = GossipNode(host, port, nodes_to_connect, name,
+                          enter_end_time, voting_end_time, candidates)
+    else:
+        node = GossipNode(host, port, nodes_to_connect, name)
+
 
 if __name__ == '__main__':
     main()

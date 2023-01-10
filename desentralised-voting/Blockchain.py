@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime
-import time
 from enum import Enum
 from threading import Lock, Event
 from collections import defaultdict
@@ -54,17 +53,17 @@ class InitBlock(ChainBlock):
                  node_hash: str,
                  nonce: str,
                  merkel_tree: MerkelTree,
-                 content: Any,
-                 step: int,
-                 branch_blocks_count: int):
-        super().__init__(node_hash, nonce, None, merkel_tree, content, step, branch_blocks_count)
+                 content: Any):
+        super().__init__(node_hash, nonce, None, merkel_tree, content, 0, 1)
         self.step_length_in_seconds = 4
-        self.start_time = datetime.datetime.now().timestamp()
-        self.enter_period = ["00:00", "12:00"]
-        self.vote_period = ["12:00", "00:00"]
+        self.start_timestamp = content['start_time']
+        start_datetime = datetime.datetime.fromtimestamp(self.start_timestamp)
+        self.voting_start_time = f'{start_datetime.hour}:{start_datetime.minute}'
+        self.enter_period_end = content['enter_end_time']
+        self.vote_period_end = content['voting_end_time']
         self.voting_topic = "DECENT ELECTIONS"
         self.enter_period_options = ["Yes", "No"]
-        self.voting_period_options = ["Vladimir Putin", "Dmitriy Medvedev(wrong choice)", "I wanna go to jail"]
+        self.voting_period_options = content['candidates']
 
 
 class ShortBlockInfo:
@@ -102,7 +101,7 @@ class Blockchain:
             hexed = SHA256.new(data=pow).hexdigest()
             if hexed.startswith('0' * self._pow_zeros):
                 break
-        return InitBlock(hexed, nonce, merkle_tree, root_content, 0, 1)
+        return InitBlock(hexed, nonce, merkle_tree, root_content)
 
     def add_transaction(self, content: Any, content_hash: str, time: float):
         with self._lock:
@@ -230,13 +229,12 @@ class Blockchain:
             block = InitBlock(content['hash'],
                               content['nonce'],
                               content['merkel_tree'],
-                              content['content'],
-                              content['step'],
-                              content['blocks_count'])
+                              content['content'])
             block.step_length_in_seconds = content['step_length_in_seconds']
-            block.start_time = content['start_time']
-            block.enter_period = content['enter_period']
-            block.vote_period = content['vote_period']
+            block.start_timestamp = content['start_timestamp']
+            block.voting_start_time = content['voting_start_time']
+            block.enter_period_end = content['enter_period_end']
+            block.vote_period_end = content['vote_period_end']
             block.voting_topic = content['voting_topic']
             block.enter_period_options = content['enter_period_options']
             block.voting_period_options = content['voting_period_options']

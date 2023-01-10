@@ -151,6 +151,7 @@ class GossipNode:
 
     def __init__(self, host, port, connected_nodes: List[(str, int)], name,
                  enter_end_time=None, voting_end_time=None, candidates=None):
+        print('Node initialization started')
         self.node = socket.socket(type=socket.SOCK_DGRAM)
         self.node_lock = Lock()
         self.hostname = host
@@ -164,7 +165,7 @@ class GossipNode:
         self.private_key = RSA.generate(2048)
         self.public_key = self.private_key.publickey().export_key().decode(
             encoding='latin1')
-        print('keys generated for', name)
+        print('Keys generated for', name)
         self.signer = PKCS115_SigScheme(self.private_key)
         self.message_handler = MessageHandler(self)
         self.message_builder = MessageBuilder()
@@ -180,8 +181,10 @@ class GossipNode:
         self.zero_step_start = self.blockchain.init_block.content['zero_step']
         self._next_deadline = self.blockchain.init_block.content['enter_end_time']
         self.move_number = -1
-        print(f'{self.port} created successfully')
         self.start_threads()
+        print(f'Node on {self.hostname}:{self.port} created successfully')
+        print(f'Enter period lasts until {self.blockchain.init_block.enter_period_end}')
+        print(f'Vote period until {self.blockchain.init_block.vote_period_end}')
 
     def __enter__(self):
         return self
@@ -306,10 +309,10 @@ class GossipNode:
         self.current_period = period_type
 
     def period_updater_loop(self):
-        start_time = [self.blockchain.init_block.enter_period[0],
-                      self.blockchain.init_block.vote_period[0]]
-        end_time = [self.blockchain.init_block.enter_period[1],
-                    self.blockchain.init_block.vote_period[1]]
+        start_time = [self.blockchain.init_block.voting_start_time,
+                      self.blockchain.init_block.enter_period_end]
+        end_time = [self.blockchain.init_block.enter_period_end,
+                    self.blockchain.init_block.vote_period_end]
         period_type = [PeriodType.Enter, PeriodType.Vote]
 
         for i in range(2):
