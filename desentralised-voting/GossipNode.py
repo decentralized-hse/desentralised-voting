@@ -356,6 +356,7 @@ class GossipNode:
         self.input_messages.append([mes_dict,
                                     infected_nodes,
                                     healthy_nodes])
+        print('Prepared a message')
 
         # print(f'You successfully voted for {message["type"]}, {message["content"]}')
 
@@ -422,6 +423,7 @@ class GossipNode:
                                    mes_dict: dict,
                                    address: (str, int),
                                    from_chain: bool = False):
+        print(f'Received a message from {address[0]}:{address[1]}')
         if not from_chain and not self._check_message(mes_dict, address):
             return
 
