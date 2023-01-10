@@ -151,6 +151,7 @@ class GossipNode:
 
     def __init__(self, host, port, connected_nodes: List[(str, int)], name,
                  enter_end_time=None, voting_end_time=None, candidates=None):
+        print('Connect to:', connected_nodes)
         print('Node initialization started')
         self.node = socket.socket(type=socket.SOCK_DGRAM)
         self.node_lock = Lock()
