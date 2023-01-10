@@ -1,5 +1,5 @@
 import json
-from Crypto.Hash import SHA256
+from Cryptodome.Hash import SHA256
 
 
 def get_hash(content):

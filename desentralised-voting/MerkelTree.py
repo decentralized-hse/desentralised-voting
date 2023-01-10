@@ -1,6 +1,6 @@
 import math
 
-from Crypto.Hash import SHA256
+from Cryptodome.Hash import SHA256
 
 
 class MerkelTreeNode:

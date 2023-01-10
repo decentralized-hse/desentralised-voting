@@ -8,8 +8,8 @@ import time
 from typing import List, Dict, Any, Optional
 import math
 
-from Crypto.PublicKey import RSA
-from Crypto.Signature.pkcs1_15 import PKCS115_SigScheme
+from Cryptodome.PublicKey import RSA
+from Cryptodome.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
 from VoteTypes import VoteType, MessageBuilder
 from Utils import get_hash
@@ -34,7 +34,7 @@ class MessageHandler:
 
     def handle_chain_request(self, tcp_host, tcp_port):
         temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        temp_socket.bind((self.gossip_node.hostname, 1000))
+        temp_socket.bind((self.gossip_node.hostname, 1025))
         temp_socket.connect((tcp_host, tcp_port))
         for data in self.gossip_node.blockchain.serialize_chain_blocks():
             temp_socket.sendall(data)
@@ -198,7 +198,7 @@ class GossipNode:
             self.blockchain = Blockchain(init_message, init_message['hash'])
         else:
             tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            tcp_sock.bind((self.hostname, 1000))
+            tcp_sock.bind((self.hostname, 1025))
             tcp_sock.listen(1)
 
             self.blockchain = Blockchain()
@@ -209,7 +209,7 @@ class GossipNode:
                 name=self.name,
                 public_key=self.public_key,
                 tcp_host=self.hostname,
-                tcp_port=1000
+                tcp_port=1025
             )
             nodes = self.susceptible_nodes.copy()
             for node in nodes:
