@@ -3,7 +3,7 @@ from json import JSONEncoder
 from enum import Enum
 from typing import List, Dict, Any
 
-from Crypto import Random
+from Cryptodome import Random
 from Utils import get_hash #, get_time
 
 

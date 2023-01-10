@@ -8,8 +8,8 @@ from collections import defaultdict
 import json
 import operator
 from MerkelTree import MerkelTree
-from Crypto import Random
-from Crypto.Hash import SHA256
+from Cryptodome import Random
+from Cryptodome.Hash import SHA256
 from typing import List, Dict, Any, Optional
 from VoteTypes import VoteType
 

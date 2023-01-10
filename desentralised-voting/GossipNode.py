@@ -8,8 +8,8 @@ import time
 from typing import List, Dict, Any, Optional
 import math
 
-from Crypto.PublicKey import RSA
-from Crypto.Signature.pkcs1_15 import PKCS115_SigScheme
+from Cryptodome.PublicKey import RSA
+from Cryptodome.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
 from VoteTypes import VoteType, MessageBuilder
 from Utils import get_hash
