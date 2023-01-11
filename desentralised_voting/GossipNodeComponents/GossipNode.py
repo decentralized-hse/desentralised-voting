@@ -176,12 +176,12 @@ class GossipNode:
                 break
 
     def update_jobs(self):
-        self.move_number += 1
-        print('step', self.move_number, time.time())
         btrd = Thread(target=self.start_forming_block, args=[self.move_number])
         btrd.start()
+        self.move_number += 1
         transmitting = Thread(target=self.transmit_all_formed_messages)
         transmitting.start()
+        print('step', self.move_number, time.time())
         transmitting.join()
         btrd.join()
 
