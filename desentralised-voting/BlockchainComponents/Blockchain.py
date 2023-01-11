@@ -1,75 +1,15 @@
 from __future__ import annotations
 
-import datetime
-from enum import Enum
 from threading import Lock, Event
 from collections import defaultdict
-import json
 import operator
-from MerkelTree import MerkelTree
+from ..MerkelTreeComponents.MerkelTree import MerkelTree
 from Cryptodome import Random
 from Cryptodome.Hash import SHA256
-from typing import List, Dict, Any, Optional
-from VoteTypes import VoteType
-
-
-class BlockEncoder(json.JSONEncoder):
-    def default(self, object):
-        return object.__dict__
-
-
-class ChainTransactionHashes:
-    def __init__(self, self_hash, parent_hash):
-        self.hash = self_hash
-        self.parent_hash = parent_hash
-
-
-class ChainBlock:
-    def __init__(self,
-                 node_hash: str,
-                 nonce: str,
-                 parent_hash: Optional[str],
-                 merkel_tree: MerkelTree,
-                 content: Dict[str, Any],
-                 step: int,
-                 branch_blocks_count: int):
-        self.hash = node_hash
-        self.nonce = nonce
-        self.parent_hash = parent_hash
-        self.merkel_tree = merkel_tree
-        self.content = content
-        self.step = step
-        self.blocks_count = branch_blocks_count
-
-
-class PeriodType(List[VoteType], Enum):
-    Default = []
-    Enter = [VoteType.enter_request, VoteType.ask_for_chain]
-    Vote = [VoteType.enter_vote, VoteType.process_vote]
-
-
-class InitBlock(ChainBlock):
-    def __init__(self,
-                 node_hash: str,
-                 nonce: str,
-                 merkel_tree: MerkelTree,
-                 content: Any):
-        super().__init__(node_hash, nonce, None, merkel_tree, content, 0, 1)
-        self.step_length_in_seconds = 4
-        self.start_timestamp = content['start_time']
-        start_datetime = datetime.datetime.fromtimestamp(self.start_timestamp)
-        self.voting_start_time = f'{start_datetime.hour}:{start_datetime.minute}'
-        self.enter_period_end = content['enter_end_time']
-        self.vote_period_end = content['voting_end_time']
-        self.voting_topic = "DECENT ELECTIONS"
-        self.enter_period_options = ["Yes", "No"]
-        self.voting_period_options = content['candidates']
-
-
-class ShortBlockInfo:
-    def __init__(self, hash, branch_blocks_count):
-        self.hash = hash
-        self.blocks_count = branch_blocks_count
+from typing import Dict, Any, Optional
+from ChainBlock import ChainBlock
+from InitBlock import InitBlock
+from HelperClasses import *
 
 
 class Blockchain:
@@ -97,8 +37,8 @@ class Blockchain:
         merkle_tree = MerkelTree([root_hash])
         while True:
             nonce = Random.get_random_bytes(8).hex()
-            pow = (merkle_tree.tree_top.value + nonce).encode('ascii')
-            hexed = SHA256.new(data=pow).hexdigest()
+            proof_of_work = (merkle_tree.tree_top.value + nonce).encode('ascii')
+            hexed = SHA256.new(data=proof_of_work).hexdigest()
             if hexed.startswith('0' * self._pow_zeros):
                 break
         return InitBlock(hexed, nonce, merkle_tree, root_content)
@@ -173,8 +113,8 @@ class Blockchain:
             nonce = Random.get_random_bytes(8).hex()
             prev_block_info = self._appoint_previous_block_info(step)
 
-            pow = (merkle_root_hash + prev_block_info.hash + nonce).encode('ascii')
-            hexed_hash = SHA256.new(data=pow).hexdigest()
+            proof_of_work = (merkle_root_hash + prev_block_info.hash + nonce).encode('ascii')
+            hexed_hash = SHA256.new(data=proof_of_work).hexdigest()
             if hexed_hash.startswith('0' * self._pow_zeros):
                 return hexed_hash, nonce, prev_block_info
 

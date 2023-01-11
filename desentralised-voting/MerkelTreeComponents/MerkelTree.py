@@ -1,18 +1,10 @@
 import math
-
 from Cryptodome.Hash import SHA256
-
-
-class MerkelTreeNode:
-    def __init__(self, value: str, left_child=None, right_child=None):
-        self.value = value
-        self.left_child = left_child
-        self.right_child = right_child
+from MerkelTreeNode import MerkelTreeNode
 
 
 class MerkelTree:
     def __init__(self, node_data: [dict]):
-        # self.inner_nodes = node_data
         self.tree_top = self.build_merkle_tree(node_data)
 
     @staticmethod
@@ -62,3 +54,6 @@ class MerkelTree:
             for i in range(current_number_of_leaves, total_number_of_leaves):
                 list_of_nodes.append(list_of_nodes[-1])
         return list_of_nodes
+
+    def __getitem__(self, item: str):
+        return self.__dict__[item]

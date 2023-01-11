@@ -1,5 +1,5 @@
 # import the GossipNode class
-from GossipNode import GossipNode
+from GossipNodeComponents.GossipNode import GossipNode
 import socket
 
 

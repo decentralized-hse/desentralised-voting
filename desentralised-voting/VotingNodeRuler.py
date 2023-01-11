@@ -1,5 +1,5 @@
 import socket
-from GossipNode import GossipNode
+from GossipNodeComponents.GossipNode import GossipNode
 
 
 class VotingNodeRuler:

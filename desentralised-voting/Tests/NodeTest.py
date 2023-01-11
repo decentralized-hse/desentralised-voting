@@ -1,8 +1,8 @@
 import time
 from threading import Event
 from unittest import TestCase
-from GossipNode import GossipNode
-from VoteTypes import VoteType
+from ..GossipNodeComponents.GossipNode import GossipNode
+from ..VoteTypesComponents.MessageBuilder import VoteType
 
 
 class NodeBlockchainTest(TestCase):

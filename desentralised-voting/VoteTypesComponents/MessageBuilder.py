@@ -1,19 +1,10 @@
 import time
 from json import JSONEncoder
-from enum import Enum
-from typing import List, Dict, Any
-
 from Cryptodome import Random
-from Utils import get_hash #, get_time
-
-
-class VoteType(int, Enum):
-    init_message = 1
-    enter_request = 2
-    enter_vote = 3
-    block = 4
-    ask_for_chain = 5
-    process_vote = 6
+from Cryptodome.Hash.SHA256 import SHA256Hash
+from ..Utils import get_hash
+from VoteType import VoteType
+from Message import Message
 
 
 necessary_fields = {
@@ -29,17 +20,10 @@ necessary_fields = {
 }
 
 
+# isn't used
 class VoteEncoder(JSONEncoder):
     def default(self, vote_object):
         return vote_object.__dict__
-
-
-class Message:
-    def __init__(self, vote_type: VoteType, variables: Dict[str, Any]):
-        self.type = vote_type
-        self.variables = variables
-        self.signer = self.variables.pop('signer')
-        self.body = None
 
 
 class MessageBuilder:
@@ -60,7 +44,7 @@ class MessageBuilder:
         return message.body
 
     @staticmethod
-    def build_base(message):
+    def build_base(message: Message):
         base = {
             'type': message.type,
             'name': message.variables['name'],
@@ -69,7 +53,7 @@ class MessageBuilder:
 
         return base
 
-    def update_body_based_on_type(self, message):
+    def update_body_based_on_type(self, message: Message):
         try:
             for key in necessary_fields[message.type]:
                 message.body[key] = message.variables[key]
@@ -81,7 +65,7 @@ class MessageBuilder:
             print("missing necessary fields")
 
     @staticmethod
-    def _get_proof_of_work_hash(message):
+    def _get_proof_of_work_hash(message: Message):
         while True:
             message.body['nonce'] = Random.get_random_bytes(8).hex()
             c_hash = get_hash(message.body)
@@ -91,6 +75,6 @@ class MessageBuilder:
                 return c_hash
 
     @staticmethod
-    def update_hash_and_signature(message, my_hash):
+    def update_hash_and_signature(message: Message, my_hash: SHA256Hash):
         message.body['hash'] = my_hash.hexdigest()
         message.body['signature'] = message.signer.sign(my_hash).decode(encoding='latin1')
