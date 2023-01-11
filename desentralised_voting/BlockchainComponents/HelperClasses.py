@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 import json
 from typing import List
-from ..VoteTypesComponents.MessageBuilder import VoteType
+from desentralised_voting.VoteTypesComponents.MessageBuilder import VoteType
 
 
 class BlockEncoder(json.JSONEncoder):

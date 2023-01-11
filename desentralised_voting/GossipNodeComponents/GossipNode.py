@@ -11,11 +11,11 @@ import math
 from Cryptodome.PublicKey import RSA
 from Cryptodome.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
-from ..VoteTypesComponents.MessageBuilder import VoteType, MessageBuilder
-from ..Utils import get_hash
-from ..BlockchainComponents.Blockchain import Blockchain, ChainBlock, PeriodType
+from desentralised_voting.VoteTypesComponents.MessageBuilder import VoteType, MessageBuilder
+from desentralised_voting.Utils import get_hash
+from desentralised_voting.BlockchainComponents.Blockchain import Blockchain, ChainBlock, PeriodType
 from enum import Enum
-from GossipNodeHelperClasses import ThreadWithReturn
+from .GossipNodeHelperClasses import ThreadWithReturn
 
 
 class GossipNode:
@@ -176,12 +176,12 @@ class GossipNode:
                 break
 
     def update_jobs(self):
+        self.move_number += 1
+        print('step', self.move_number, time.time())
         btrd = Thread(target=self.start_forming_block, args=[self.move_number])
         btrd.start()
-        self.move_number += 1
         transmitting = Thread(target=self.transmit_all_formed_messages)
         transmitting.start()
-        print('step', self.move_number, time.time())
         transmitting.join()
         btrd.join()
 
@@ -400,4 +400,4 @@ class GossipNode:
         self.node.close()
 
 
-from MsgHandler import MessageHandler
+from .MsgHandler import MessageHandler

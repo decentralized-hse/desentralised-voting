@@ -2,9 +2,9 @@ import time
 from json import JSONEncoder
 from Cryptodome import Random
 from Cryptodome.Hash.SHA256 import SHA256Hash
-from ..Utils import get_hash
-from VoteType import VoteType
-from Message import Message
+from desentralised_voting.Utils import get_hash
+from .VoteType import VoteType
+from .Message import Message
 
 
 necessary_fields = {

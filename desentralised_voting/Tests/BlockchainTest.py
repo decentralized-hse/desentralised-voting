@@ -1,7 +1,7 @@
 from threading import Event, Thread
 from unittest import TestCase
-from ..MerkelTreeComponents.MerkelTree import MerkelTree
-from ..BlockchainComponents.Blockchain import Blockchain, ChainBlock
+from desentralised_voting.MerkelTreeComponents.MerkelTree import MerkelTree
+from desentralised_voting.BlockchainComponents.Blockchain import Blockchain, ChainBlock
 
 
 class TestBlockchain(TestCase):

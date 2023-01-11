@@ -3,13 +3,13 @@ from __future__ import annotations
 from threading import Lock, Event
 from collections import defaultdict
 import operator
-from ..MerkelTreeComponents.MerkelTree import MerkelTree
+from desentralised_voting.MerkelTreeComponents.MerkelTree import MerkelTree
 from Cryptodome import Random
 from Cryptodome.Hash import SHA256
 from typing import Dict, Any, Optional
-from ChainBlock import ChainBlock
-from InitBlock import InitBlock
-from HelperClasses import *
+from .ChainBlock import ChainBlock
+from .InitBlock import InitBlock
+from .HelperClasses import *
 
 
 class Blockchain:

@@ -4,7 +4,7 @@ import socket
 from threading import Thread
 from typing import Dict, Any
 import json
-from ..VoteTypesComponents.MessageBuilder import VoteType
+from desentralised_voting.VoteTypesComponents.MessageBuilder import VoteType
 
 
 class MessageHandler:
@@ -109,4 +109,4 @@ class MessageHandler:
         Thread(target=self.gossip_node.input_message, args=(message,)).start()
 
 
-from GossipNode import GossipNode
+from .GossipNode import GossipNode

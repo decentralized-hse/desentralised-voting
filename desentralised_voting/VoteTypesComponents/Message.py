@@ -1,4 +1,4 @@
-from VoteType import VoteType
+from .VoteType import VoteType
 from typing import Dict, Any
 
 
