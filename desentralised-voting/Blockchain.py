@@ -140,10 +140,6 @@ class Blockchain:
             block = self._hash_to_block[block.parent_hash]
         return False
 
-    def get_actual_chain_backwards(self):
-        for block in self._get_main_chain_blocks_backwards():
-            yield block.content
-
     def get_actual_chain_forwards(self):
         hashes = []
         for block in self._get_main_chain_blocks_backwards():

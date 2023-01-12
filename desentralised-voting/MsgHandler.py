@@ -29,15 +29,18 @@ class MessageHandler:
                 print('used')
                 time.sleep(1)
 
-    def handle_enter_request_to_transmit(self, address: (str, int), message_dict: Dict[str, Any], ask_vote: bool):
+    def handle_enter_request_to_transmit(self, message_dict: Dict[str, Any], ask_vote: bool):
         # so now we only get enter_request if we don't have the node in susceptible, we do not spread this type of msg
 
         # adding node to voting_process and candidates_keys
         # not adding node to susceptible yet so we don't spread enter_vote messages to it
+        print(message_dict)
+        key_addr = message_dict['try_enter_address']
+        address = (key_addr.split(':')[0], int(key_addr.split(':')[1]))
         self.gossip_node.susceptible_nodes.append(address)
         if message_dict['name'] not in self.gossip_node.request_voting_process.keys():
             self.gossip_node.request_voting_process[message_dict['name']] = set()
-        key_addr = address[0] + ':' + str(address[1])
+
         self.gossip_node.candidates_keys[key_addr] = message_dict['public_key']
         print(f'Saved {key_addr} public key')
 
@@ -46,7 +49,7 @@ class MessageHandler:
 
     def handle_vote_spreading(self, address, try_enter_name: str):
         # asking user to vote
-        enter_address = address[0] + ':' + str(address[1])
+        enter_address = f'{address[0]}:{address[1]}'
         vote = input("New user {} is requesting enter permission. Do you grant permission(Yes/No)?"
                      "Message in any format other than 'Yes' will be taken as No."
                      .format(try_enter_name))
@@ -67,8 +70,10 @@ class MessageHandler:
         # transmitting message to all susceptible nodes
         Thread(target=self.gossip_node.input_message, args=(message,)).start()
 
-    def handle_enter_vote_to_transmit(self, key, address: str, message_dict: Dict[str, Any]):
+    def handle_enter_vote_to_transmit(self, message_dict: Dict[str, Any]):
         # we already know about this node and voted for it
+        key = message_dict['try_enter_name']
+        address = message_dict['try_enter_address']
         if key in self.gossip_node.request_voting_process.keys():
             # adding received vote if it wasn't added already (that's why set)
             self._add_vote(key, message_dict['name'], address)
@@ -94,7 +99,7 @@ class MessageHandler:
                 print(f'Voters: {", ".join(self.gossip_node.address_port_to_public_key.keys())}')
             except KeyError as e:
                 print(e)
-                print(f'Candidates: {", ".join(self.gossip_node.candidates_keys)}')
+            print(f'Candidates: {", ".join(self.gossip_node.candidates_keys)}')
 
     def handle_block(self, block_json):
         block = self.gossip_node.blockchain.deserialize_block_from_json(block_json)

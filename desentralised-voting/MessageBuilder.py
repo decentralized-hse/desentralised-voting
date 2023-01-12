@@ -14,7 +14,7 @@ necessary_fields = {
                             'enter_end_time',
                             'voting_end_time',
                             'candidates'],
-    VoteType.enter_request: ['public_key'],
+    VoteType.enter_request: ['try_enter_address', 'public_key'],
     VoteType.enter_vote: ['try_enter_name', 'try_enter_address', 'enter_vote'],
     VoteType.block: ['block'],
     VoteType.ask_for_chain: ['public_key', 'tcp_host', 'tcp_port'],

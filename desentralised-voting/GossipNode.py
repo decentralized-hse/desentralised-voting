@@ -135,6 +135,10 @@ class GossipNode:
             org_addr = self.blockchain.init_block.org_addr
             org_key = self.blockchain.init_block.org_pub_key.encode(encoding='latin1')
             self.address_port_to_public_key[org_addr] = org_key
+            print('Start filling counters')
+            self._update_period()
+            self.fill_counters_from_chain()
+            print('Counters filled')
             self.send_enter_request()
 
     def send_enter_request(self):
@@ -142,6 +146,7 @@ class GossipNode:
             VoteType.enter_request,
             signer=self.signer,
             name=self.name,
+            try_enter_address=f'{self.hostname}:{self.port}',
             public_key=self.public_key)
         Thread(target=self.input_message, args=(message,)).start()
 
@@ -161,9 +166,22 @@ class GossipNode:
         return int((time.time() - self.zero_step_start) / self.step_period_seconds)
 
     def fill_counters_from_chain(self):
-        for block_content in self.blockchain.get_actual_chain_backwards():
+        for block_content in self.blockchain.get_actual_chain_forwards():
             for message in block_content.values():
-                self.deal_with_received_message(message, None, True)
+                if message['type'] == VoteType.enter_request:
+                    self._checks_for_fill_counters(message)
+                    self.message_handler.handle_enter_request_to_transmit(
+                        message, False)
+                    return
+
+                if message['type'] == VoteType.enter_vote:
+                    self._checks_for_fill_counters(message)
+                    self.message_handler.handle_enter_vote_to_transmit(message)
+
+    def _checks_for_fill_counters(self, message):
+        splited = message['try_enter_address'].split(':')
+        address = (splited[0], int(splited[1]))
+        return self._check_message(message, address)
 
     def send_chain_block_immediately(self, block: ChainBlock):
         json_block = self.blockchain.block_to_json(block)
@@ -221,13 +239,18 @@ class GossipNode:
 
     def period_updater_loop(self):
         while True:
-            if datetime.now().timestamp() > self.blockchain.init_block.vote_period_end:
-                self.set_period(PeriodType.End)
-                print(f'Elections are over\n{self.set_period(PeriodType.End)} won')
-            elif datetime.now().timestamp() > self.blockchain.init_block.enter_period_end:
-                self.set_period(PeriodType.Vote)
-            else:
-                self.set_period(PeriodType.Enter)
+            self._update_period()
+            if self.current_period == PeriodType.End:
+                break
+
+    def _update_period(self):
+        if datetime.now().timestamp() > self.blockchain.init_block.vote_period_end:
+            self.set_period(PeriodType.End)
+            print(f'Elections are over\n{self.set_period(PeriodType.End)} won')
+        elif datetime.now().timestamp() > self.blockchain.init_block.enter_period_end:
+            self.set_period(PeriodType.Vote)
+        else:
+            self.set_period(PeriodType.Enter)
 
     def timer_launcher(self):
         Thread(target=self.move_updater_loop).start()
@@ -263,12 +286,6 @@ class GossipNode:
         print('Prepared a message')
 
         # print(f'You successfully voted for {message["type"]}, {message["content"]}')
-
-    def read_message_exists_answer(self, response):
-        converted_dict = json.loads(response.decode('ascii'))
-        if self._check_message(converted_dict):
-            return set(converted_dict['extra'])
-        return set()
 
     def _get_pub_key(self, message: Dict[str, Any], address: (str, int)):
         if message['type'] in [VoteType.enter_request, VoteType.ask_for_chain]:
@@ -326,12 +343,9 @@ class GossipNode:
 
         return True
 
-    def deal_with_received_message(self,
-                                   mes_dict: dict,
-                                   address: (str, int),
-                                   from_chain: bool = False):
+    def deal_with_received_message(self, mes_dict: dict, address: (str, int)):
         print(f'Received a message from {address[0]}:{address[1]}, type {mes_dict["type"]}')
-        if not from_chain and not self._check_message(mes_dict, address):
+        if not self._check_message(mes_dict, address):
             return
         print('Checks OK')
 
@@ -339,11 +353,11 @@ class GossipNode:
             self.message_handler.handle_chain_request(mes_dict['tcp_host'], mes_dict['tcp_port'])
             return
 
-        if not from_chain and mes_dict['type'] != VoteType.block:
+        if mes_dict['type'] != VoteType.block:
             self.blockchain.add_transaction(mes_dict, mes_dict['hash'], mes_dict['start_time'])
 
         if mes_dict['type'] == VoteType.enter_request:
-            self.message_handler.handle_enter_request_to_transmit(address, mes_dict, not from_chain)
+            self.message_handler.handle_enter_request_to_transmit(mes_dict, True)
             return
 
         if mes_dict['type'] == VoteType.process_vote:
@@ -351,28 +365,23 @@ class GossipNode:
             return
 
         if mes_dict['type'] == VoteType.enter_vote:
-            if from_chain:
-                if mes_dict['try_enter_name'] not in self.request_voting_process.keys():
-                    self.request_voting_process[mes_dict['try_enter_name']] = set()
-            self.message_handler.handle_enter_vote_to_transmit(
-                mes_dict['try_enter_name'], mes_dict['try_enter_address'], mes_dict)
+            self.message_handler.handle_enter_vote_to_transmit(mes_dict)
 
         if mes_dict['type'] == VoteType.block.value:
             self.message_handler.handle_block(mes_dict['block'])
 
         # creating  copies so initial arrays stay the same for other messages
 
-        if not from_chain:
-            infected_nodes = []
-            healthy_nodes = self.susceptible_nodes.copy()
-            try:
-                healthy_nodes.remove(address)
-            except ValueError:
-                pass
-            infected_nodes.append(address)
-            # send message to other connected clients
-            self.transmit_message(json.dumps(mes_dict).encode('ascii'),
-                                  infected_nodes, healthy_nodes)
+        infected_nodes = []
+        healthy_nodes = self.susceptible_nodes.copy()
+        try:
+            healthy_nodes.remove(address)
+        except ValueError:
+            pass
+        infected_nodes.append(address)
+        # send message to other connected clients
+        self.transmit_message(json.dumps(mes_dict).encode('ascii'),
+                              infected_nodes, healthy_nodes)
 
     # method that receives a message and send it to other connected clients
     def receive_message(self):
@@ -410,6 +419,9 @@ class GossipNode:
                 print(f"Voting period has changed. Current period is '{period.name}'")
                 if self.current_period == PeriodType.Vote:
                     Thread(target=self.message_handler.handle_process_vote_spreading).start()
+                if self.current_period == PeriodType.End or PeriodType.Default:
+                    print(self.current_period)
+                    print(self._get_final_results())
 
     def _get_final_results(self):
         voters_names = [self.blockchain.init_block.content['name']]
