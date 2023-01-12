@@ -405,8 +405,10 @@ class GossipNode:
         while True:
             if period != self.current_period:
                 period = self.current_period
-                print(f"Voting period has changed. Current period is '{period.name}'"
-                      f"This means you can now only send and receive messages of types: {period.value}")
+                print(f"Voting period has changed. Current period is '{period.name}'")
+                if self.current_period == PeriodType.Vote:
+                    print('Candidates:')
+                    print(self.blockchain.init_block.voting_period_options)
 
     def start_threads(self):
         Thread(target=self.timer_launcher).start()
