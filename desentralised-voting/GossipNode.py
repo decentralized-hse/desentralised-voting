@@ -207,10 +207,7 @@ class GossipNode:
         start = self.blockchain.init_block.start_timestamp
         while True:
             time_diff = time.time() - self.zero_step_start
-            print('time diff', time_diff)
-            print('step period', self.step_period_seconds)
             self.move_number = math.trunc(time_diff / period) + 1
-            print('move num', self.move_number)
             start_time = start + self.move_number * period
             time.sleep(start_time - time.time())
             for i in range(10):

@@ -35,19 +35,21 @@ class MessageHandler:
 
     def handle_vote_spreading(self, address, try_enter_name: str):
         # asking user to vote
+        enter_address = address[0] + ':' + str(address[1])
         vote = input("New user {} is requesting enter permission. Do you grant permission(Yes/No)?"
                      "Message in any format other than 'Yes' will be taken as No."
                      .format(try_enter_name))
 
         # add ourself if the vote is Yes
         if vote == "Yes":
-            self.gossip_node.request_voting_process[try_enter_name].add(self.gossip_node.name)
+            # self.gossip_node.request_voting_process[try_enter_name].add(self.gossip_node.name)
+            self._add_vote(try_enter_name, self.gossip_node.name, enter_address)
 
         # building message to spread voting
         message = self.gossip_node.message_builder.build_message(VoteType.enter_vote,
                                                                  signer=self.gossip_node.signer,
                                                                  name=self.gossip_node.name,
-                                                                 try_enter_address=address[0] + ':' + str(address[1]),
+                                                                 try_enter_address=enter_address,
                                                                  try_enter_name=try_enter_name,
                                                                  enter_vote=vote == "Yes")
 
@@ -58,22 +60,28 @@ class MessageHandler:
         # we already know about this node and voted for it
         if key in self.gossip_node.request_voting_process.keys():
             # adding received vote if it wasn't added already (that's why set)
-            self.gossip_node.request_voting_process[key].add(message_dict['name'])
-
-            # checking if there is enough votes for applying node to be trusted
-            votes_for_request = len(self.gossip_node.request_voting_process[key])
-            voters = len(self.gossip_node.address_port_to_public_key)
-            if votes_for_request >= 2 or voters < 2:
-                print('Added', address)
-                self.gossip_node.address_port_to_public_key[address] = self.gossip_node.candidates_keys.pop(address)
-
+            self._add_vote(key, message_dict['name'], address)
         else:
             # adding our vote plus the vote we received and spread our vote
+            if key == self.gossip_node.name:
+                return
             self.gossip_node.request_voting_process[key] = {message_dict['name']}
             self.handle_vote_spreading(address, message_dict['try_enter_name'])
         Thread(target=self.gossip_node.transmit_message, args=(json.dumps(message_dict).encode('ascii'),
                                                                [],
                                                                self.gossip_node.susceptible_nodes.copy())).start()
+
+    def _add_vote(self, candidate_name, voter_name, candidate_address):
+        self.gossip_node.request_voting_process[candidate_name].add(voter_name)
+
+        votes_for_request = len(self.gossip_node.request_voting_process[candidate_name])
+        voters = len(self.gossip_node.address_port_to_public_key)
+        print('votes_for_request', votes_for_request)
+        print('voters', voters)
+        if votes_for_request >= 2 or voters < 2:
+            print('Added', candidate_address)
+            self.gossip_node.address_port_to_public_key[candidate_address] = \
+                self.gossip_node.candidates_keys.pop(candidate_address)
 
     def handle_block(self, block_json):
         block = self.gossip_node.blockchain.deserialize_block_from_json(block_json)
