@@ -11,9 +11,9 @@ import math
 from Cryptodome.PublicKey import RSA
 from Cryptodome.Signature.pkcs1_15 import PKCS115_SigScheme
 import json
-from ..VoteTypesComponents.MessageBuilder import VoteType, MessageBuilder
-from ..Utils import get_hash
-from ..BlockchainComponents.Blockchain import Blockchain, ChainBlock, PeriodType
+from MessageBuilder import VoteType, MessageBuilder
+from Utils import get_hash
+from Blockchain import Blockchain, ChainBlock, PeriodType
 from enum import Enum
 from GossipNodeHelperClasses import ThreadWithReturn
 

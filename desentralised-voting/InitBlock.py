@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from ..MerkelTreeComponents.MerkelTree import MerkelTree
+from MerkelTree import MerkelTree
 from typing import Any
 from ChainBlock import ChainBlock
 

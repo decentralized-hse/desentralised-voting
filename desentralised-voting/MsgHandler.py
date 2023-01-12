@@ -4,7 +4,7 @@ import socket
 from threading import Thread
 from typing import Dict, Any
 import json
-from ..VoteTypesComponents.MessageBuilder import VoteType
+from MessageBuilder import VoteType
 
 
 class MessageHandler:

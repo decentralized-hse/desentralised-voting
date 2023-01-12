@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional
-from ..MerkelTreeComponents.MerkelTree import MerkelTree
+from MerkelTree import MerkelTree
 
 
 class ChainBlock:

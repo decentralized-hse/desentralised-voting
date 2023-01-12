@@ -3,7 +3,7 @@ from __future__ import annotations
 from threading import Lock, Event
 from collections import defaultdict
 import operator
-from ..MerkelTreeComponents.MerkelTree import MerkelTree
+from MerkelTree import MerkelTree
 from Cryptodome import Random
 from Cryptodome.Hash import SHA256
 from typing import Dict, Any, Optional
