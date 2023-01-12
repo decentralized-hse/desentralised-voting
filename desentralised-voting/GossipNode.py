@@ -116,7 +116,7 @@ class GossipNode:
                     conn, address = tcp_sock.accept()
                     try:
                         while True:
-                            data = conn.recv(2048)
+                            data = conn.recv(4096)
                             block = self.blockchain.deserialize_block(data)
                             self.blockchain.try_add_block(block)
                     except:
@@ -177,6 +177,7 @@ class GossipNode:
                               healthy_nodes)
 
     def start_forming_block(self, move_number):
+        print('Start forming block for step', move_number)
         stop_event = Event()
         thread = ThreadWithReturn(self.blockchain.try_form_block)
         thread.run(move_number, stop_event)
@@ -221,21 +222,13 @@ class GossipNode:
         self.current_period = period_type
 
     def period_updater_loop(self):
-        start_time = [self.blockchain.init_block.voting_start_time,
-                      self.blockchain.init_block.enter_period_end]
-        end_time = [self.blockchain.init_block.enter_period_end,
-                    self.blockchain.init_block.vote_period_end]
-        period_type = [PeriodType.Enter, PeriodType.Vote]
-
-        for i in range(2):
-            time_start = datetime.strptime(start_time[i], '%H:%M')
-            while datetime.now().hour != time_start.hour or datetime.now().minute != time_start.minute:
-                time.sleep(1)
-            self.set_period(period_type[i])
-            time_end = datetime.strptime(end_time[i], '%H:%M')
-            while datetime.now().hour != time_end.hour or datetime.now().minute != time_end.minute:
-                time.sleep(1)
-            self.set_period(PeriodType.Default)
+        while True:
+            if datetime.now().timestamp() > self.blockchain.init_block.vote_period_end:
+                self.set_period(PeriodType.End)
+            elif datetime.now().timestamp() > self.blockchain.init_block.enter_period_end:
+                self.set_period(PeriodType.Vote)
+            else:
+                self.set_period(PeriodType.Enter)
 
     def timer_launcher(self):
         Thread(target=self.move_updater_loop).start()
@@ -319,12 +312,8 @@ class GossipNode:
             print('Our own message')
             return False
 
-        if self.current_period == PeriodType.Vote and message['type'] == VoteType.enter_request:
-            print('Wrong period')
-            return False
-
-        if self.current_period == PeriodType.Enter and message['type'] == VoteType.enter_vote:
-            print('Wrong period')
+        if message['type'] not in self.current_period.value:
+            print('Wrong period:', message['type'], 'for', self.current_period.value)
             return False
 
         # if we do not trust sending node

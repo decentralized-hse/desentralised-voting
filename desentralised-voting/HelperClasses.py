@@ -19,8 +19,13 @@ class ChainTransactionHashes:
 
 class PeriodType(List[VoteType], Enum):
     Default = []
-    Enter = [VoteType.enter_request, VoteType.ask_for_chain]
-    Vote = [VoteType.enter_vote, VoteType.process_vote]
+    Enter = [VoteType.enter_request,
+             VoteType.ask_for_chain,
+             VoteType.enter_vote,
+             VoteType.block]
+    Vote = [VoteType.process_vote,
+            VoteType.block]
+    End = []
 
 
 class ShortBlockInfo:
