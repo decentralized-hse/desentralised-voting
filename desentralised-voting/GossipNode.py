@@ -224,6 +224,7 @@ class GossipNode:
         while True:
             if datetime.now().timestamp() > self.blockchain.init_block.vote_period_end:
                 self.set_period(PeriodType.End)
+                print(f'Elections are over\n{self.set_period(PeriodType.End)} won')
             elif datetime.now().timestamp() > self.blockchain.init_block.enter_period_end:
                 self.set_period(PeriodType.Vote)
             else:
