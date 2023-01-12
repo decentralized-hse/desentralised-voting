@@ -80,44 +80,58 @@ class GossipNode:
 
     def _init_chain(self, enter_end_time, voting_end_time, candidates):
         if len(self.susceptible_nodes) == 0:
+            str_address = f'{self.hostname}:{self.port}'
             init_message = self.message_builder.build_message(VoteType.init_message,
                                                               signer=self.signer,
                                                               name=self.name,
+                                                              org_addr=str_address,
+                                                              org_pub_key=self.public_key,
                                                               zero_step=time.time(),
                                                               enter_end_time=enter_end_time,
                                                               voting_end_time=voting_end_time,
                                                               candidates=candidates)
             self.blockchain = Blockchain(init_message, init_message['hash'])
+            print(self.blockchain.init_block.__dict__)
         else:
-            tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            tcp_sock.bind((self.hostname, 1025))
-            tcp_sock.listen(1)
+            while True:
+                tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                tcp_sock.bind((self.hostname, 1025))
+                tcp_sock.listen(1)
 
-            self.blockchain = Blockchain()
+                self.blockchain = Blockchain()
 
-            message = self.message_builder.build_message(
-                VoteType.ask_for_chain,
-                signer=self.signer,
-                name=self.name,
-                public_key=self.public_key,
-                tcp_host=self.hostname,
-                tcp_port=1025
-            )
-            nodes = self.susceptible_nodes.copy()
-            for node in nodes:
-                bin_message = json.dumps(message).encode('ascii')
-                self.node.sendto(bin_message, (node[0], node[1]))
-            for i in range(len(nodes)):
-                conn, address = tcp_sock.accept()
+                message = self.message_builder.build_message(
+                    VoteType.ask_for_chain,
+                    signer=self.signer,
+                    name=self.name,
+                    public_key=self.public_key,
+                    tcp_host=self.hostname,
+                    tcp_port=1025
+                )
+                nodes = self.susceptible_nodes.copy()
+                for node in nodes:
+                    bin_message = json.dumps(message).encode('ascii')
+                    self.node.sendto(bin_message, (node[0], node[1]))
+                for i in range(len(nodes)):
+                    conn, address = tcp_sock.accept()
+                    try:
+                        while True:
+                            data = conn.recv(2048)
+                            block = self.blockchain.deserialize_block(data)
+                            self.blockchain.try_add_block(block)
+                    except:
+                        pass
+                    finally:
+                        conn.close()
                 try:
-                    while True:
-                        data = conn.recv(2048)
-                        block = self.blockchain.deserialize_block(data)
-                        self.blockchain.try_add_block(block)
-                except:
-                    pass
-                finally:
-                    conn.close()
+                    self.blockchain.init_block
+                except AttributeError:
+                    print('No init block')
+                    continue
+                break
+            org_addr = self.blockchain.init_block.org_addr
+            org_key = self.blockchain.init_block.org_pub_key.encode(encoding='latin1')
+            self.address_port_to_public_key[org_addr] = org_key
             self.send_enter_request()
 
     def send_enter_request(self):
@@ -171,7 +185,9 @@ class GossipNode:
             if (thread.value is not None) or \
                     (move_number in self.blockchain._step_to_blocks_info):
                 if thread.value:
+                    print('formed a block')
                     self.send_chain_block_immediately(thread.value)
+                print('got a block')
                 stop_event.set()
                 break
 
@@ -271,17 +287,20 @@ class GossipNode:
         copy_to_check = message.copy()
         message_hash = copy_to_check.pop('hash')
         if self._is_already_received(message['start_time'], message_hash):
+            print('Already recv')
             return False
         message_signature = copy_to_check.pop('signature').encode(
             encoding='latin1')
         re_hash = get_hash(copy_to_check)
         if message_hash != re_hash.hexdigest():
+            print('wrong hash')
             return False
 
         verifier = PKCS115_SigScheme(RSA.importKey(pub_key))
         try:
             verifier.verify(re_hash, message_signature)
         except ValueError:
+            print('wrong signature')
             return False
 
         self.prev_message_time_to_hashes[message['start_time']] = message_hash
@@ -297,17 +316,21 @@ class GossipNode:
     def _check_message(self, message: Dict[str, Any], address: (str, int)) -> bool:
         # if received message is our
         if message['name'] == self.name:
+            print('Our own message')
             return False
 
         if self.current_period == PeriodType.Vote and message['type'] == VoteType.enter_request:
+            print('Wrong period')
             return False
 
         if self.current_period == PeriodType.Enter and message['type'] == VoteType.enter_vote:
+            print('Wrong period')
             return False
 
         # if we do not trust sending node
         pub_key = self._get_pub_key(message, address)
         if pub_key is None:
+            print('No public key')
             return False
 
         if not self._common_checks(message, pub_key):
@@ -319,9 +342,10 @@ class GossipNode:
                                    mes_dict: dict,
                                    address: (str, int),
                                    from_chain: bool = False):
-        print(f'Received a message from {address[0]}:{address[1]}')
+        print(f'Received a message from {address[0]}:{address[1]}, type {mes_dict["type"]}')
         if not from_chain and not self._check_message(mes_dict, address):
             return
+        print('Checks OK')
 
         if mes_dict['type'] == VoteType.ask_for_chain:
             self.message_handler.handle_chain_request(mes_dict['tcp_host'], mes_dict['tcp_port'])
@@ -331,18 +355,20 @@ class GossipNode:
             self.message_handler.handle_process_vote(mes_dict)
             return
 
-        # TODO think if we reduce content
         if not from_chain and mes_dict['type'] != VoteType.block:
             self.blockchain.add_transaction(mes_dict, mes_dict['hash'], mes_dict['start_time'])
+
         if mes_dict['type'] == VoteType.enter_request:
             self.message_handler.handle_enter_request_to_transmit(address, mes_dict, not from_chain)
             return
+
         if mes_dict['type'] == VoteType.enter_vote:
             if from_chain:
                 if mes_dict['try_enter_name'] not in self.request_voting_process.keys():
                     self.request_voting_process[mes_dict['try_enter_name']] = set()
             self.message_handler.handle_enter_vote_to_transmit(
                 mes_dict['try_enter_name'], mes_dict['try_enter_address'], mes_dict)
+
         if mes_dict['type'] == VoteType.block.value:
             self.message_handler.handle_block(mes_dict['block'])
 
@@ -368,6 +394,7 @@ class GossipNode:
             try:
                 message_to_forward, address = self.node.recvfrom(4096)
             except BaseException as e:
+                print(e)
                 continue
             mes_dict = json.loads(message_to_forward.decode('ascii'))
             Thread(target=self.deal_with_received_message,
@@ -386,8 +413,6 @@ class GossipNode:
 
             healthy_nodes.remove(selected_node)
             infected_nodes.append(selected_node)
-            # TODO W H Y timesleep???
-            # time.sleep(2)
 
     def _inform_user_about_period_changing(self):
         period = self.current_period

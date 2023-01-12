@@ -52,8 +52,7 @@ class MessageHandler:
                                                                  enter_vote=vote == "Yes")
 
         # transmitting message to all susceptible nodes
-        vote_thread = Thread(target=self.gossip_node.input_message, args=(message,))
-        vote_thread.start()
+        Thread(target=self.gossip_node.input_message, args=(message,)).start()
 
     def handle_enter_vote_to_transmit(self, key, address: str, message_dict: Dict[str, Any]):
         # we already know about this node and voted for it
@@ -62,7 +61,10 @@ class MessageHandler:
             self.gossip_node.request_voting_process[key].add(message_dict['name'])
 
             # checking if there is enough votes for applying node to be trusted
-            if len(self.gossip_node.request_voting_process[key]) == 2:
+            votes_for_request = len(self.gossip_node.request_voting_process[key])
+            voters = len(self.gossip_node.address_port_to_public_key)
+            if votes_for_request >= 2 or voters < 2:
+                print('Added', address)
                 self.gossip_node.address_port_to_public_key[address] = self.gossip_node.candidates_keys.pop(address)
 
         else:

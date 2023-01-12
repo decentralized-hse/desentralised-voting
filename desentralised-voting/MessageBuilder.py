@@ -9,6 +9,8 @@ from Message import Message
 
 necessary_fields = {
     VoteType.init_message: ['zero_step',
+                            'org_addr',
+                            'org_pub_key',
                             'enter_end_time',
                             'voting_end_time',
                             'candidates'],

@@ -16,6 +16,8 @@ class InitBlock(ChainBlock):
         self.step_length_in_seconds = 4
         self.start_timestamp = content['start_time']
         start_datetime = datetime.datetime.fromtimestamp(self.start_timestamp)
+        self.org_addr = content['org_addr']
+        self.org_pub_key = content['org_pub_key']
         self.voting_start_time = f'{start_datetime.hour}:{start_datetime.minute}'
         self.enter_period_end = content['enter_end_time']
         self.vote_period_end = content['voting_end_time']

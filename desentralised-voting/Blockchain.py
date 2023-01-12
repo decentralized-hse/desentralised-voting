@@ -44,6 +44,7 @@ class Blockchain:
         return InitBlock(hexed, nonce, merkle_tree, root_content)
 
     def add_transaction(self, content: Any, content_hash: str, time: float):
+        print('adding', content)
         with self._lock:
             self._hash_to_content[content_hash] = content
             self._pool_time_key[time] = content_hash
@@ -165,12 +166,15 @@ class Blockchain:
     @staticmethod
     def deserialize_block_from_json(json_content: str):
         content = json.loads(json_content)
+        print(content)
         if content['step'] == 0:
             block = InitBlock(content['hash'],
                               content['nonce'],
                               content['merkel_tree'],
                               content['content'])
             block.step_length_in_seconds = content['step_length_in_seconds']
+            block.org_addr = content['org_addr']
+            block.org_pub_key = content['org_pub_key']
             block.start_timestamp = content['start_timestamp']
             block.voting_start_time = content['voting_start_time']
             block.enter_period_end = content['enter_period_end']
