@@ -186,13 +186,20 @@ class GossipNode:
         btrd.join()
 
     def move_updater_loop(self):
-        time_diff = time.time() - self.zero_step_start
-        self.move_number = math.trunc(time_diff / self.step_period_seconds) + 1
-        start_time = time.time() + self.move_number * self.step_period_seconds
-        time.sleep(start_time - time.time())
+        period = self.step_period_seconds
+        start = self.blockchain.init_block.start_timestamp
         while True:
+            time_diff = time.time() - self.zero_step_start
+            print('time diff', time_diff)
+            print('step period', self.step_period_seconds)
+            self.move_number = math.trunc(time_diff / period) + 1
+            print('move num', self.move_number)
+            start_time = start + self.move_number * period
+            time.sleep(start_time - time.time())
+            for i in range(10):
+                Thread(target=self.update_jobs).start()
+                time.sleep(self.step_period_seconds)
             Thread(target=self.update_jobs).start()
-            time.sleep(self.step_period_seconds)
 
     def set_period(self, period_type: PeriodType):
         self.current_period = period_type
@@ -391,8 +398,8 @@ class GossipNode:
                       f"This means you can now only send and receive messages of types: {period.value}")
 
     def start_threads(self):
-        Thread(target=self.receive_message).start()
         Thread(target=self.timer_launcher).start()
+        Thread(target=self.receive_message).start()
         Thread(target=self._inform_user_about_period_changing).start()
 
     def __exit__(self, exc_type, exc_value, traceback):
