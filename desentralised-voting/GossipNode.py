@@ -190,7 +190,6 @@ class GossipNode:
                 if thread.value:
                     print('formed a block')
                     self.send_chain_block_immediately(thread.value)
-                print('got a block')
                 stop_event.set()
                 break
 

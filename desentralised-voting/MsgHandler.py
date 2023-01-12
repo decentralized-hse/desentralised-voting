@@ -39,6 +39,7 @@ class MessageHandler:
             self.gossip_node.request_voting_process[message_dict['name']] = set()
         key_addr = address[0] + ':' + str(address[1])
         self.gossip_node.candidates_keys[key_addr] = message_dict['public_key']
+        print(f'Saved {key_addr} public key')
 
         if ask_vote:
             self.handle_vote_spreading(address, message_dict['name'])
@@ -86,9 +87,14 @@ class MessageHandler:
         print('votes_for_request', votes_for_request)
         print('voters', voters)
         if votes_for_request >= 2 or voters < 2:
-            print('Added', candidate_address)
-            self.gossip_node.address_port_to_public_key[candidate_address] = \
-                self.gossip_node.candidates_keys.pop(candidate_address)
+            try:
+                self.gossip_node.address_port_to_public_key[candidate_address] = \
+                    self.gossip_node.candidates_keys.pop(candidate_address)
+                print('Added', candidate_name, candidate_address)
+                print(f'Voters: {", ".join(self.gossip_node.address_port_to_public_key.keys())}')
+            except KeyError as e:
+                print(e)
+                print(f'Candidates: {", ".join(self.gossip_node.candidates_keys)}')
 
     def handle_block(self, block_json):
         block = self.gossip_node.blockchain.deserialize_block_from_json(block_json)
