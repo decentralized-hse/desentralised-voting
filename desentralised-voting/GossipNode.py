@@ -4,6 +4,7 @@ from datetime import datetime
 import random
 import socket
 from threading import Thread, Lock, Event
+from collections import defaultdict
 import time
 from typing import List, Dict, Any, Optional
 import math
@@ -32,7 +33,7 @@ class GossipNode:
 
     difficulty_level = 2
     key_difficulty_level = 1
-    voting_process = {}
+    voting_process: Dict[str, set] = {}
     request_voting_process: Dict[(str, int), set] = {}
     candidates_keys = {}
     step_period_seconds = 4
@@ -69,6 +70,8 @@ class GossipNode:
         self._init_chain(enter_end_time, voting_end_time, candidates)
         self.zero_step_start = self.blockchain.init_block.content['zero_step']
         self._next_deadline = self.blockchain.init_block.content['enter_end_time']
+        for option in self.blockchain.init_block.voting_period_options:
+            self.voting_process[option] = set()
         self.move_number = -1
         self.start_threads()
         print(f'Node on {self.hostname}:{self.port} created successfully')
@@ -91,11 +94,10 @@ class GossipNode:
                                                               voting_end_time=voting_end_time,
                                                               candidates=candidates)
             self.blockchain = Blockchain(init_message, init_message['hash'])
-            print(self.blockchain.init_block.__dict__)
         else:
             while True:
                 tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                tcp_sock.bind((self.hostname, 1025))
+                tcp_sock.bind((self.hostname, 1024))
                 tcp_sock.listen(1)
 
                 self.blockchain = Blockchain()
@@ -106,7 +108,7 @@ class GossipNode:
                     name=self.name,
                     public_key=self.public_key,
                     tcp_host=self.hostname,
-                    tcp_port=1025
+                    tcp_port=1024
                 )
                 nodes = self.susceptible_nodes.copy()
                 for node in nodes:
@@ -128,6 +130,7 @@ class GossipNode:
                 except AttributeError:
                     print('No init block')
                     continue
+                tcp_sock.close()
                 break
             org_addr = self.blockchain.init_block.org_addr
             org_key = self.blockchain.init_block.org_pub_key.encode(encoding='latin1')
@@ -177,7 +180,6 @@ class GossipNode:
                               healthy_nodes)
 
     def start_forming_block(self, move_number):
-        print('Start forming block for step', move_number)
         stop_event = Event()
         thread = ThreadWithReturn(self.blockchain.try_form_block)
         thread.run(move_number, stop_event)
@@ -337,15 +339,15 @@ class GossipNode:
             self.message_handler.handle_chain_request(mes_dict['tcp_host'], mes_dict['tcp_port'])
             return
 
-        if mes_dict['type'] == VoteType.process_vote:
-            self.message_handler.handle_process_vote(mes_dict)
-            return
-
         if not from_chain and mes_dict['type'] != VoteType.block:
             self.blockchain.add_transaction(mes_dict, mes_dict['hash'], mes_dict['start_time'])
 
         if mes_dict['type'] == VoteType.enter_request:
             self.message_handler.handle_enter_request_to_transmit(address, mes_dict, not from_chain)
+            return
+
+        if mes_dict['type'] == VoteType.process_vote:
+            self.message_handler.handle_process_vote(mes_dict)
             return
 
         if mes_dict['type'] == VoteType.enter_vote:
@@ -407,8 +409,26 @@ class GossipNode:
                 period = self.current_period
                 print(f"Voting period has changed. Current period is '{period.name}'")
                 if self.current_period == PeriodType.Vote:
-                    print('Candidates:')
-                    print(self.blockchain.init_block.voting_period_options)
+                    Thread(target=self.message_handler.handle_process_vote_spreading).start()
+
+    def _get_final_results(self):
+        voters_names = [self.blockchain.init_block.content['name']]
+        voter_candidates = defaultdict(set)
+        voting = {x: 0 for x in self.voting_process.keys()}
+        for block_content in self.blockchain.get_actual_chain_forwards():
+            for message in block_content.values():
+                if message['type'] == VoteType.enter_vote and message['enter_vote']:
+                    candidate_votes = voter_candidates[message['try_enter_name']]
+                    candidate_votes.add(message['name'])
+                    if len(voters_names) < 2 or len(candidate_votes) >= 2:
+                        voters_names.append(message['try_enter_name'])
+                        voter_candidates.pop(message['try_enter_name'])
+                if message['type'] == VoteType.process_vote:
+                    if message['name'] in voters_names:
+                        voters_names.remove(message['name'])
+                        voting[message['process_vote_option']] += 1
+        max_votes = max(voting.values())
+        return [k for k, v in voting.items() if v == max_votes]
 
     def start_threads(self):
         Thread(target=self.timer_launcher).start()

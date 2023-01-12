@@ -21,11 +21,11 @@ class InitBlock(ChainBlock):
         self.voting_start_time = f'{start_datetime.hour}:{start_datetime.minute}'
         draft_time = datetime.datetime.now().replace(second=0, microsecond=0)
         enter_end = content['enter_end_time'].split(':')
-        self.enter_period_end = draft_time.replace(hour=int(enter_end[0]),
+        self.enter_period_end = draft_time.replace(hour=int(enter_end[0]) - 5,
                                                    minute=int(enter_end[1]))\
                                           .timestamp()
         voting_end = content['voting_end_time'].split(':')
-        self.vote_period_end = draft_time.replace(hour=int(voting_end[0]),
+        self.vote_period_end = draft_time.replace(hour=int(voting_end[0]) - 5,
                                                    minute=int(voting_end[1]))\
                                          .timestamp()
         self.voting_topic = "DECENT ELECTIONS"

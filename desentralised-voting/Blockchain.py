@@ -141,12 +141,23 @@ class Blockchain:
         return False
 
     def get_actual_chain_backwards(self):
+        for block in self._get_main_chain_blocks_backwards():
+            yield block.content
+
+    def get_actual_chain_forwards(self):
+        hashes = []
+        for block in self._get_main_chain_blocks_backwards():
+            hashes.append(block.hash)
+        for i in range(len(hashes) - 1, -1, -1):
+            yield self._hash_to_block[hashes[i]].content
+
+    def _get_main_chain_blocks_backwards(self):
         block_hash = self._get_tail_block_hash_naive()
         while True:
             if block_hash == self.init_block.hash:
                 return
             block = self._hash_to_block[block_hash]
-            yield block.content
+            yield block
             block_hash = block.parent_hash
 
     def serialize_chain_blocks(self):

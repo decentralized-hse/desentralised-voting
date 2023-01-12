@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import time
 from threading import Thread
 from typing import Dict, Any
 import json
@@ -10,14 +11,23 @@ from MessageBuilder import VoteType
 class MessageHandler:
     def __init__(self, gossip_node: GossipNode):
         self.gossip_node = gossip_node
+        #self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     def handle_chain_request(self, tcp_host, tcp_port):
-        temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        temp_socket.bind((self.gossip_node.hostname, 1025))
-        temp_socket.connect((tcp_host, tcp_port))
-        for data in self.gossip_node.blockchain.serialize_chain_blocks():
-            temp_socket.sendall(data)
-        temp_socket.close()
+        while True:
+            try:
+                temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                temp_socket.bind((self.gossip_node.hostname, 1025))
+                temp_socket.connect((tcp_host, tcp_port))
+                for data in self.gossip_node.blockchain.serialize_chain_blocks():
+                    temp_socket.sendall(data)
+                print('closing')
+                temp_socket.close()
+                print('closed')
+                break
+            except OSError:
+                print('used')
+                time.sleep(1)
 
     def handle_enter_request_to_transmit(self, address: (str, int), message_dict: Dict[str, Any], ask_vote: bool):
         # so now we only get enter_request if we don't have the node in susceptible, we do not spread this type of msg
@@ -67,9 +77,6 @@ class MessageHandler:
                 return
             self.gossip_node.request_voting_process[key] = {message_dict['name']}
             self.handle_vote_spreading(address, message_dict['try_enter_name'])
-        Thread(target=self.gossip_node.transmit_message, args=(json.dumps(message_dict).encode('ascii'),
-                                                               [],
-                                                               self.gossip_node.susceptible_nodes.copy())).start()
 
     def _add_vote(self, candidate_name, voter_name, candidate_address):
         self.gossip_node.request_voting_process[candidate_name].add(voter_name)
@@ -95,17 +102,18 @@ class MessageHandler:
                                                                    [],
                                                                    self.gossip_node.susceptible_nodes.copy())).start()
         else:
-            print('This fucker tries to falsify our honest, decent and most trusted votes')
+            print('This fucker tries to falsify our honest, '
+                  'decent and most trusted elections')
 
     def handle_process_vote_spreading(self):
         vote_options = self.gossip_node.blockchain.init_block.voting_period_options
         # asking user to vote
         vote = None
         while vote not in vote_options:
-            vote = input(f"New election has begun. Vote! Or don't, it doesn't really matter these days"
-                         f"Candidates are: {vote_options}"
+            vote = input(f"New election has begun. Vote! Or don't, it doesn't really matter these days\n"
+                         f"Candidates are: {', '.join(vote_options)}\n"
                          "Type the exact name of a candidate you want to vote for. All other messages "
-                         "including candidates names with typos will not be considered.")
+                         "including candidates names with typos will not be considered.").strip()
 
         # add our vote
         self.gossip_node.voting_process[vote].add(self.gossip_node.name)
