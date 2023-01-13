@@ -98,6 +98,7 @@ class GossipNode:
             while True:
                 tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 tcp_sock.bind((self.hostname, 1024))
+                print((self.hostname, 1024))
                 tcp_sock.listen(5)
 
                 self.blockchain = Blockchain()
@@ -111,11 +112,19 @@ class GossipNode:
                     tcp_port=1024
                 )
                 nodes = self.susceptible_nodes.copy()
+                nodes_hosts = {node[0] for node in nodes}
                 for node in nodes:
                     bin_message = json.dumps(message).encode('ascii')
                     self.node.sendto(bin_message, (node[0], node[1]))
-                for i in range(len(nodes)):
+
+                while len(nodes_hosts) > 0:
                     conn, address = tcp_sock.accept()
+                    print(address[0])
+                    if address[0] not in nodes_hosts:
+                        conn.close()
+                        continue
+                    nodes_hosts.remove(address[0])
+
                     try:
                         while True:
                             data = conn.recv(4096)
@@ -217,7 +226,7 @@ class GossipNode:
         self.move_number += 1
         transmitting = Thread(target=self.transmit_all_formed_messages)
         transmitting.start()
-        print('step', self.move_number, time.time())
+        # print('step', self.move_number, time.time())
         transmitting.join()
         btrd.join()
 

@@ -11,32 +11,26 @@ from MessageBuilder import VoteType
 class MessageHandler:
     def __init__(self, gossip_node: GossipNode):
         self.gossip_node = gossip_node
-        #self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     def handle_chain_request(self, tcp_host, tcp_port):
-        port = 1025
-        temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        while True:
-            try:
-                temp_socket.bind((self.gossip_node.hostname, port))
-                print(f'{port} with {self.gossip_node.hostname} is now in use')
-                temp_socket.connect((tcp_host, tcp_port))
-                for data in self.gossip_node.blockchain.serialize_chain_blocks():
-                    temp_socket.sendall(data)
-                temp_socket.close()
-                print(f'{port} with {self.gossip_node.hostname} is no longer in use')
-                break
-            except OSError:
-                print(f'{port} with {self.gossip_node.hostname} is in use')
-                temp_socket.close()
-                port += 1
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as temp_socket:
+            while True:
+                try:
+                    temp_socket.connect((tcp_host, tcp_port))
+                    for data in self.gossip_node.blockchain.serialize_chain_blocks():
+                        temp_socket.sendall(data)
+
+                    print(f'{self.gossip_node.hostname} sent blockchain to {tcp_host}')
+                    break
+                except OSError as e:
+                    print(e)
 
     def handle_enter_request_to_transmit(self, message_dict: Dict[str, Any], ask_vote: bool):
         # so now we only get enter_request if we don't have the node in susceptible, we do not spread this type of msg
 
         # adding node to voting_process and candidates_keys
         # not adding node to susceptible yet so we don't spread enter_vote messages to it
-        print(message_dict)
+        # print(message_dict)
         key_addr = message_dict['try_enter_address']
         address = (key_addr.split(':')[0], int(key_addr.split(':')[1]))
         self.gossip_node.susceptible_nodes.append(address)
