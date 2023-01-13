@@ -98,7 +98,7 @@ class GossipNode:
             while True:
                 tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 tcp_sock.bind((self.hostname, 1024))
-                tcp_sock.listen(1)
+                tcp_sock.listen(5)
 
                 self.blockchain = Blockchain()
 

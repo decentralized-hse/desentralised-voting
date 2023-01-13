@@ -15,9 +15,9 @@ class MessageHandler:
 
     def handle_chain_request(self, tcp_host, tcp_port):
         port = 1025
+        temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         while True:
             try:
-                temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 temp_socket.bind((self.gossip_node.hostname, port))
                 print(f'{port} with {self.gossip_node.hostname} is now in use')
                 temp_socket.connect((tcp_host, tcp_port))
@@ -28,6 +28,7 @@ class MessageHandler:
                 break
             except OSError:
                 print(f'{port} with {self.gossip_node.hostname} is in use')
+                temp_socket.close()
                 port += 1
 
     def handle_enter_request_to_transmit(self, message_dict: Dict[str, Any], ask_vote: bool):
@@ -51,8 +52,8 @@ class MessageHandler:
     def handle_vote_spreading(self, address, try_enter_name: str):
         # asking user to vote
         enter_address = f'{address[0]}:{address[1]}'
-        vote = input("\rNew user {} is requesting enter permission. Do you grant permission(Yes/No)?"
-                     "Message in any format other than 'Yes' will be taken as No."
+        vote = input("New user {} is requesting enter permission. Do you grant permission(Yes/No)?\n"
+                     "Message in any format other than 'Yes' will be taken as No.\n"
                      .format(try_enter_name))
 
         # add ourself if the vote is Yes
