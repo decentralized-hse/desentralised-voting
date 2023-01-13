@@ -30,7 +30,9 @@ class MessageHandler:
                 print(f'{port} with {self.gossip_node.hostname} is in use')
                 port += 1
 
-    def handle_enter_request_to_transmit(self, message_dict: Dict[str, Any], ask_vote: bool):
+    def handle_enter_request_to_transmit(self,
+                                         message_dict: Dict[str, Any],
+                                         ask_vote: bool = True):
         # so now we only get enter_request if we don't have the node in susceptible, we do not spread this type of msg
 
         # adding node to voting_process and candidates_keys
@@ -46,6 +48,10 @@ class MessageHandler:
         print(f'Saved {key_addr} public key')
 
         if ask_vote:
+            self.gossip_node.transmit_message(
+                json.dumps(message_dict).encode('ascii'),
+                [],
+                self.gossip_node.susceptible_nodes.copy())
             self.handle_vote_spreading(address, message_dict['name'])
 
     def handle_vote_spreading(self, address, try_enter_name: str):
@@ -73,17 +79,11 @@ class MessageHandler:
 
     def handle_enter_vote_to_transmit(self, message_dict: Dict[str, Any]):
         # we already know about this node and voted for it
-        key = message_dict['try_enter_name']
+        enter_name = message_dict['try_enter_name']
         address = message_dict['try_enter_address']
-        if key in self.gossip_node.request_voting_process.keys():
+        if enter_name in self.gossip_node.request_voting_process.keys():
             # adding received vote if it wasn't added already (that's why set)
-            self._add_vote(key, message_dict['name'], address)
-        else:
-            # adding our vote plus the vote we received and spread our vote
-            if key == self.gossip_node.name:
-                return
-            self.gossip_node.request_voting_process[key] = {message_dict['name']}
-            self.handle_vote_spreading(address, message_dict['try_enter_name'])
+            self._add_vote(enter_name, message_dict['name'], address)
 
     def _add_vote(self, candidate_name, voter_name, candidate_address):
         self.gossip_node.request_voting_process[candidate_name].add(voter_name)

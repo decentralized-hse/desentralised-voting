@@ -292,12 +292,14 @@ class GossipNode:
             return message['public_key'].encode(encoding='latin1')
         return self.address_port_to_public_key.get(address[0] + ':' + str(address[1]), None)
 
-    def _common_checks(self, message, pub_key):
+    def _hash_checks(self, message, pub_key):
         copy_to_check = message.copy()
         message_hash = copy_to_check.pop('hash')
+
         if self._is_already_received(message['start_time'], message_hash):
             print('Already recv')
             return False
+
         message_signature = copy_to_check.pop('signature').encode(
             encoding='latin1')
         re_hash = get_hash(copy_to_check)
@@ -338,7 +340,7 @@ class GossipNode:
             print('No public key')
             return False
 
-        if not self._common_checks(message, pub_key):
+        if not self._hash_checks(message, pub_key):
             return False
 
         return True
@@ -357,7 +359,7 @@ class GossipNode:
             self.blockchain.add_transaction(mes_dict, mes_dict['hash'], mes_dict['start_time'])
 
         if mes_dict['type'] == VoteType.enter_request:
-            self.message_handler.handle_enter_request_to_transmit(mes_dict, True)
+            self.message_handler.handle_enter_request_to_transmit(mes_dict)
             return
 
         if mes_dict['type'] == VoteType.process_vote:
@@ -441,9 +443,18 @@ class GossipNode:
         max_votes = max(voting.values())
         return [k for k, v in voting.items() if v == max_votes]
 
+    def update_received_messages(self):
+        while self.current_period != PeriodType.End:
+            new_hashes = []
+            for block in self.blockchain.get_actual_chain_backwards():
+                for message_hash, message in block.items():
+                    new_hashes[message['start_time']] = message_hash
+            self.prev_message_time_to_hashes = new_hashes
+
     def start_threads(self):
         Thread(target=self.timer_launcher).start()
         Thread(target=self.receive_message).start()
+        Thread(target=self.update_received_messages).start()
         Thread(target=self._inform_user_about_period_changing).start()
 
     def __exit__(self, exc_type, exc_value, traceback):
