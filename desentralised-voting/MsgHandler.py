@@ -14,20 +14,21 @@ class MessageHandler:
         #self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     def handle_chain_request(self, tcp_host, tcp_port):
+        port = 1025
         while True:
             try:
                 temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                temp_socket.bind((self.gossip_node.hostname, 1025))
+                temp_socket.bind((self.gossip_node.hostname, port))
+                print(f'{port} with {self.gossip_node.hostname} is now in use')
                 temp_socket.connect((tcp_host, tcp_port))
                 for data in self.gossip_node.blockchain.serialize_chain_blocks():
                     temp_socket.sendall(data)
-                print('closing')
                 temp_socket.close()
-                print('closed')
+                print(f'{port} with {self.gossip_node.hostname} is no longer in use')
                 break
             except OSError:
-                print('used')
-                time.sleep(1)
+                print(f'{port} with {self.gossip_node.hostname} is in use')
+                port += 1
 
     def handle_enter_request_to_transmit(self, message_dict: Dict[str, Any], ask_vote: bool):
         # so now we only get enter_request if we don't have the node in susceptible, we do not spread this type of msg
@@ -50,7 +51,7 @@ class MessageHandler:
     def handle_vote_spreading(self, address, try_enter_name: str):
         # asking user to vote
         enter_address = f'{address[0]}:{address[1]}'
-        vote = input("New user {} is requesting enter permission. Do you grant permission(Yes/No)?"
+        vote = input("\rNew user {} is requesting enter permission. Do you grant permission(Yes/No)?"
                      "Message in any format other than 'Yes' will be taken as No."
                      .format(try_enter_name))
 

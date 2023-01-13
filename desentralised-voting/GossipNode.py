@@ -344,7 +344,7 @@ class GossipNode:
         return True
 
     def deal_with_received_message(self, mes_dict: dict, address: (str, int)):
-        print(f'Received a message from {address[0]}:{address[1]}, type {mes_dict["type"]}')
+        print(f'Received a message from {mes_dict["name"]} ( address is {address[0]}:{address[1]}), type is {VoteType(mes_dict["type"]).name}')
         if not self._check_message(mes_dict, address):
             return
         print('Checks OK')
@@ -390,12 +390,11 @@ class GossipNode:
                 return
             try:
                 message_to_forward, address = self.node.recvfrom(4096)
+                mes_dict = json.loads(message_to_forward.decode('ascii'))
+                Thread(target=self.deal_with_received_message,
+                       args=(mes_dict, address)).start()
             except BaseException as e:
                 print(e)
-                continue
-            mes_dict = json.loads(message_to_forward.decode('ascii'))
-            Thread(target=self.deal_with_received_message,
-                   args=(mes_dict, address)).start()
 
     # method that sends messages to other connected clients
     def transmit_message(self,
