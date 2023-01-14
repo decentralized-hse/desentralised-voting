@@ -134,6 +134,8 @@ class GossipNode:
                         block = self.blockchain.deserialize_block(data)
                         print('block received ', block.hash)
                         self.blockchain.try_add_block(block)
+                        assert len(b'\00') == 1
+                        conn.sendall(b'\00')
 
                     assert len(b'\00') == 1
                     conn.sendall(b'\00')
