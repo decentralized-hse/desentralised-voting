@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 import random
 import socket
+from struct import unpack
 from threading import Thread, Lock, Event
 from collections import defaultdict
 import time
@@ -119,20 +120,26 @@ class GossipNode:
 
                 while len(nodes_hosts) > 0:
                     conn, address = tcp_sock.accept()
-                    print(address[0])
+                    print('Sender is ', address[0])
                     if address[0] not in nodes_hosts:
                         conn.close()
                         continue
-                    nodes_hosts.remove(address[0])
+                    bs = conn.recv(8)
+                    (length,) = unpack('>Q', bs)
 
                     try:
-                        while True:
-                            data = conn.recv(4096)
+                        while length > 0:
+                            data = conn.recv(4096 if length > 4096 else length)
+                            length -= len(data)
                             block = self.blockchain.deserialize_block(data)
+                            print('block received ', block.hash)
                             self.blockchain.try_add_block(block)
-                    except:
-                        pass
+
+                        assert len(b'\00') == 1
+                        conn.sendall(b'\00')
                     finally:
+                        nodes_hosts.remove(address[0])
+                        conn.shutdown(socket.SHUT_WR)
                         conn.close()
                 try:
                     self.blockchain.init_block
@@ -140,6 +147,7 @@ class GossipNode:
                     print('No init block')
                     continue
                 tcp_sock.close()
+                tcp_sock = None
                 break
             org_addr = self.blockchain.init_block.org_addr
             org_key = self.blockchain.init_block.org_pub_key.encode(encoding='latin1')

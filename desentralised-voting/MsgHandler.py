@@ -6,6 +6,7 @@ from threading import Thread
 from typing import Dict, Any
 import json
 from MessageBuilder import VoteType
+from struct import pack
 
 
 class MessageHandler:
@@ -16,14 +17,25 @@ class MessageHandler:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as temp_socket:
             while True:
                 try:
+                    nodes_data = []
+                    data_length = 0
+                    for block_hash, data in self.gossip_node.blockchain.serialize_chain_blocks():
+                        nodes_data.append((block_hash, data))
+                        data_length += len(data)
                     temp_socket.connect((tcp_host, tcp_port))
-                    for data in self.gossip_node.blockchain.serialize_chain_blocks():
+                    length = pack('>Q', data_length)
+                    temp_socket.sendall(length)
+                    for block_hash, data in nodes_data:
                         temp_socket.sendall(data)
+                        print(f'Hash sent {block_hash}')
 
+                    ack = temp_socket.recv(1)
                     print(f'{self.gossip_node.hostname} sent blockchain to {tcp_host}')
                     break
                 except OSError as e:
                     print(e)
+
+            temp_socket.shutdown(socket.SHUT_WR)
 
     def handle_enter_request_to_transmit(self, message_dict: Dict[str, Any], ask_vote: bool):
         # so now we only get enter_request if we don't have the node in susceptible, we do not spread this type of msg

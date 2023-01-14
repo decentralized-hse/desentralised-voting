@@ -159,7 +159,7 @@ class Blockchain:
     def serialize_chain_blocks(self):
         for block_hash in self._hash_to_block:
             block = self._hash_to_block[block_hash]
-            yield json.dumps(block, cls=BlockEncoder).encode('ascii')
+            yield block_hash, json.dumps(block, cls=BlockEncoder).encode('ascii')
 
     @staticmethod
     def block_to_json(block: ChainBlock) -> str:
