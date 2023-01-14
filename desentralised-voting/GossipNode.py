@@ -190,7 +190,7 @@ class GossipNode:
                     self._checks_for_fill_counters(message)
                     self.message_handler.handle_enter_request_to_transmit(
                         message, False)
-                    return
+                    continue
 
                 if message['type'] == VoteType.enter_vote:
                     self._checks_for_fill_counters(message)
