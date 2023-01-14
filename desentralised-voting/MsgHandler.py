@@ -22,11 +22,13 @@ class MessageHandler:
                     for block_hash, data in self.gossip_node.blockchain.serialize_chain_blocks():
                         nodes_data.append((block_hash, data))
                         data_length += len(data)
+                        data_length += len(b'\00')
                     temp_socket.connect((tcp_host, tcp_port))
                     length = pack('>Q', data_length)
                     temp_socket.sendall(length)
                     for block_hash, data in nodes_data:
                         temp_socket.sendall(data)
+                        temp_socket.sendall(b'\00')
                         print(f'Hash sent {block_hash}')
 
                     ack = temp_socket.recv(1)

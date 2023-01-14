@@ -98,6 +98,7 @@ class GossipNode:
         else:
             while True:
                 tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                print(self.hostname, 1024)
                 tcp_sock.bind((self.hostname, 1024))
                 print((self.hostname, 1024))
                 tcp_sock.listen(5)
@@ -117,38 +118,43 @@ class GossipNode:
                 for node in nodes:
                     bin_message = json.dumps(message).encode('ascii')
                     self.node.sendto(bin_message, (node[0], node[1]))
+                    while len(nodes_hosts) > 0:
+                        conn, address = tcp_sock.accept()
+                        print('Sender is ', address[0])
+                        if address[0] not in nodes_hosts:
+                            conn.close()
+                            continue
+                        bs = conn.recv(8)
+                        (length,) = unpack('>Q', bs)
+                        print(length)
 
-                while len(nodes_hosts) > 0:
-                    conn, address = tcp_sock.accept()
-                    print('Sender is ', address[0])
-                    if address[0] not in nodes_hosts:
-                        conn.close()
-                        continue
-                    bs = conn.recv(8)
-                    (length,) = unpack('>Q', bs)
+                        try:
+                            while length > 0:
+                                block_data = b''
+                                while length > 0:
+                                    data = conn.recv(4096 if length > 4096 else length)
+                                    length -= len(data)
+                                    if data == b'\00':
+                                        break
+                                    block_data += data
+                                block = self.blockchain.deserialize_block(block_data)
+                                print('block received ', block.hash)
+                                print('block added', self.blockchain.try_add_block(block))
 
+                            assert len(b'\00') == 1
+                            conn.sendall(b'\00')
+                        finally:
+                            nodes_hosts.remove(address[0])
+                            conn.shutdown(socket.SHUT_WR)
+                            conn.close()
                     try:
-                        while length > 0:
-                            data = conn.recv(4096 if length > 4096 else length)
-                            length -= len(data)
-                            block = self.blockchain.deserialize_block(data)
-                            print('block received ', block.hash)
-                            self.blockchain.try_add_block(block)
-
-                        assert len(b'\00') == 1
-                        conn.sendall(b'\00')
-                    finally:
-                        nodes_hosts.remove(address[0])
-                        conn.shutdown(socket.SHUT_WR)
-                        conn.close()
-                try:
-                    self.blockchain.init_block
-                except AttributeError:
-                    print('No init block')
-                    continue
-                tcp_sock.close()
-                tcp_sock = None
-                break
+                        self.blockchain.init_block
+                    except AttributeError:
+                        print('No init block')
+                        continue
+                    break
+            tcp_sock.close()
+            tcp_sock = None
             org_addr = self.blockchain.init_block.org_addr
             org_key = self.blockchain.init_block.org_pub_key.encode(encoding='latin1')
             self.address_port_to_public_key[org_addr] = org_key

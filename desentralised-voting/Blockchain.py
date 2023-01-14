@@ -171,6 +171,7 @@ class Blockchain:
 
     @staticmethod
     def deserialize_block_from_json(json_content: str):
+        print(json_content)
         content = json.loads(json_content)
         if content['step'] == 0:
             block = InitBlock(content['hash'],
