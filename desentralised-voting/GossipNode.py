@@ -264,7 +264,7 @@ class GossipNode:
     def _update_period(self):
         if datetime.now().timestamp() > self.blockchain.init_block.vote_period_end:
             self.set_period(PeriodType.End)
-            print(f'Elections are over\n{self.set_period(PeriodType.End)} won')
+            print(f'Elections are over\n')
         elif datetime.now().timestamp() > self.blockchain.init_block.enter_period_end:
             self.set_period(PeriodType.Vote)
         else:
@@ -438,25 +438,38 @@ class GossipNode:
                     Thread(target=self.message_handler.handle_process_vote_spreading).start()
                 if self.current_period == PeriodType.End or PeriodType.Default:
                     print(self.current_period)
-                    print(self._get_final_results())
+                    res = self._get_final_results()
+                    if len(res) == 1:
+                        print(f'OUR WINNER IS {res[0]}')
+                    else:
+                        print(f'OUR WINNERS ARE: {", ".join(res)}')
 
     def _get_final_results(self):
-        voters_names = [self.blockchain.init_block.content['name']]
+        voters_names = {self.blockchain.init_block.content['name']}
         voter_candidates = defaultdict(set)
+        print(f'Voting process {self.voting_process}')
         voting = {x: 0 for x in self.voting_process.keys()}
         for block_content in self.blockchain.get_actual_chain_forwards():
             for message in block_content.values():
                 if message['type'] == VoteType.enter_vote and message['enter_vote']:
+                    print('in enter vote')
+                    print(f'voter_candidates {voter_candidates}')
                     candidate_votes = voter_candidates[message['try_enter_name']]
                     candidate_votes.add(message['name'])
+                    print(f'candidate_votes {candidate_votes}')
                     if len(voters_names) < 2 or len(candidate_votes) >= 2:
-                        voters_names.append(message['try_enter_name'])
+                        voters_names.add(message['try_enter_name'])
                         voter_candidates.pop(message['try_enter_name'])
+                    print(f'voters_names {voters_names}')
                 if message['type'] == VoteType.process_vote:
+                    print('in vote')
+                    print(f'voter {message["name"]}')
                     if message['name'] in voters_names:
                         voters_names.remove(message['name'])
                         voting[message['process_vote_option']] += 1
         max_votes = max(voting.values())
+        print(max_votes)
+        print(voting)
         return [k for k, v in voting.items() if v == max_votes]
 
     def start_threads(self):
