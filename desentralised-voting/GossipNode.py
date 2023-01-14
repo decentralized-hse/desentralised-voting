@@ -472,9 +472,19 @@ class GossipNode:
         print(voting)
         return [k for k, v in voting.items() if v == max_votes]
 
+    def _update_received_messages(self):
+        while self.current_period != PeriodType.End:
+            new_hashes = dict()
+            for block in self.blockchain.get_actual_chain_forwards():
+                for message_hash, message in block.items():
+                    new_hashes[message['start_time']] = message_hash
+            self.prev_message_time_to_hashes = new_hashes
+            time.sleep(self.step_period_seconds * 2)
+
     def start_threads(self):
         Thread(target=self.timer_launcher).start()
         Thread(target=self.receive_message).start()
+        Thread(target=self._update_received_messages).start()
         Thread(target=self._inform_user_about_period_changing).start()
 
     def __exit__(self, exc_type, exc_value, traceback):
