@@ -112,7 +112,7 @@ class MessageHandler:
 
     def handle_block(self, block_json):
         block = self.gossip_node.blockchain.deserialize_block_from_json(block_json)
-        self.gossip_node.blockchain.try_add_block(block)
+        self.gossip_node.blockchain.add_block_to_step_candidates(block)
 
     def handle_process_vote(self, message_dict: Dict[str, Any]):
         vote = message_dict['process_vote_option']

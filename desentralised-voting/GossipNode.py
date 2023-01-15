@@ -94,14 +94,14 @@ class GossipNode:
                                                               enter_end_time=enter_end_time,
                                                               voting_end_time=voting_end_time,
                                                               candidates=candidates)
-            self.blockchain = Blockchain(init_message, init_message['hash'])
+            self.blockchain = Blockchain(self.public_key, init_message, init_message['hash'])
         else:
             tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             tcp_sock.bind((self.hostname, 1024))
             print((self.hostname, 1024))
             tcp_sock.listen(5)
 
-            self.blockchain = Blockchain()
+            self.blockchain = Blockchain(self.public_key)
 
             message = self.message_builder.build_message(
                 VoteType.ask_for_chain,
@@ -215,29 +215,13 @@ class GossipNode:
                               infected_nodes,
                               healthy_nodes)
 
-    def start_forming_block(self, move_number):
-        stop_event = Event()
-        thread = ThreadWithReturn(self.blockchain.try_form_block)
-        thread.run(move_number, stop_event)
-        while True:
-            time.sleep(5)
-            if (thread.value is not None) or \
-                    (move_number in self.blockchain._step_to_blocks_info):
-                if thread.value:
-                    print('formed a block')
-                    self.send_chain_block_immediately(thread.value)
-                stop_event.set()
-                break
-
     def update_jobs(self):
-        btrd = Thread(target=self.start_forming_block, args=[self.move_number])
-        btrd.start()
+        block = self.blockchain.step_chain_update(self.move_number)
+        if block is not None:
+            Thread(target=self.send_chain_block_immediately,
+                   args=[block]).start()
         self.move_number += 1
-        transmitting = Thread(target=self.transmit_all_formed_messages)
-        transmitting.start()
-        # print('step', self.move_number, time.time())
-        transmitting.join()
-        btrd.join()
+        self.transmit_all_formed_messages()
 
     def move_updater_loop(self):
         period = self.step_period_seconds
@@ -275,9 +259,11 @@ class GossipNode:
         Thread(target=self.period_updater_loop).start()
 
     def _track_message_in_chain(self, message, block_step: int):
-        time.sleep(self.step_period_seconds * 3)
-        if not self.blockchain.try_find_transaction_hash_from(block_step,
-                                                              message['hash']):
+        time.sleep(self.step_period_seconds * 5)
+        in_chain = self.blockchain.try_find_transaction_hash_from(block_step,
+                                                                  message['hash'])
+        can_resend = message['type'] in self.current_period.value
+        if not in_chain and can_resend:
             self.input_messages.append([message, [], self.susceptible_nodes.copy()])
 
     def transmit_all_formed_messages(self):
@@ -472,9 +458,19 @@ class GossipNode:
         print(voting)
         return [k for k, v in voting.items() if v == max_votes]
 
+    def _update_received_messages(self):
+        while self.current_period != PeriodType.End:
+            new_hashes = dict()
+            for block in self.blockchain.get_actual_chain_forwards():
+                for message_hash, message in block.items():
+                    new_hashes[message['start_time']] = message_hash
+            self.prev_message_time_to_hashes = new_hashes
+            time.sleep(self.step_period_seconds * 2)
+
     def start_threads(self):
         Thread(target=self.timer_launcher).start()
         Thread(target=self.receive_message).start()
+        Thread(target=self._update_received_messages).start()
         Thread(target=self._inform_user_about_period_changing).start()
 
     def __exit__(self, exc_type, exc_value, traceback):

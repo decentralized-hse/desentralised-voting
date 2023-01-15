@@ -9,10 +9,10 @@ from ChainBlock import ChainBlock
 class InitBlock(ChainBlock):
     def __init__(self,
                  node_hash: str,
-                 nonce: str,
                  merkel_tree: MerkelTree,
-                 content: Any):
-        super().__init__(node_hash, nonce, None, merkel_tree, content, 0, 1)
+                 content: Any,
+                 public_key: str):
+        super().__init__(node_hash, None, merkel_tree, content, public_key, 0)
         self.step_length_in_seconds = 4
         self.start_timestamp = content['start_time']
         start_datetime = datetime.datetime.fromtimestamp(self.start_timestamp)

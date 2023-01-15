@@ -26,9 +26,3 @@ class PeriodType(List[VoteType], Enum):
     Vote = [VoteType.process_vote,
             VoteType.block]
     End = []
-
-
-class ShortBlockInfo:
-    def __init__(self, block_hash, branch_blocks_count):
-        self.hash = block_hash
-        self.blocks_count = branch_blocks_count
